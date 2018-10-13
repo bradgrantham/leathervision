@@ -37,7 +37,8 @@ struct ColecoHW : board_base
 
     // static const int PIC_PORT = 0;
 
-    static const int VDP_CTRL_PORT = 0xBF;
+    static const int VDP_DATA_PORT = 0xBE;
+    static const int VDP_CMD_PORT = 0xBF;
 
     static const int SN76489A_PORT = 0xFF;
 
@@ -46,7 +47,16 @@ struct ColecoHW : board_base
     static const int CONTROLLER1_PORT = 0xFC;
     static const int CONTROLLER2_PORT = 0xFF;
 
-    enum {VDP_PHASE_VALUE, VDP_PHASE_REG} vdp_phase = VDP_PHASE_VALUE;
+    static const int VDP_REG_A0_A5_MASK = 0x3F;
+    static const int VDP_CMD_MASK = 0xC0;
+    static const int VDP_CMD_SET_REGISTER = 0x80;
+    static const int VDP_CMD_SET_WRITE_ADDRESS = 0x40;
+    static const int VDP_CMD_SET_READ_ADDRESS = 0x00;
+
+    enum {VDP_CMD_PHASE_FIRST, VDP_CMD_PHASE_SECOND} vdp_phase = VDP_CMD_PHASE_FIRST;
+    unsigned char vdp_cmd_data = 0x0;
+    unsigned int vdp_read_address = 0x0;
+    unsigned int vdp_write_address = 0x0;
 
     ColecoHW()
     {
@@ -60,13 +70,41 @@ struct ColecoHW : board_base
             // return true;
         // }
 
-        if(addr == ColecoHW::VDP_CTRL_PORT) {
-            if(vdp_phase == VDP_PHASE_VALUE) {
-                if(debug) printf("VDP control write value 0x%02X\n", data);
+        if(addr == ColecoHW::VDP_CMD_PORT) {
+            if(vdp_phase == VDP_CMD_PHASE_FIRST) {
+                if(debug) printf("VDP command write, first byte 0x%02X\n", data);
+                vdp_cmd_data = data;
+                vdp_phase = VDP_CMD_PHASE_SECOND;
             } else {
-                if(debug) printf("VDP control write register 0x%02X\n", data);
+                int cmd = data & VDP_CMD_MASK;
+                if(cmd == VDP_CMD_SET_REGISTER) {
+                    int which_register = data & VDP_REG_A0_A5_MASK;
+                    if(debug) printf("VDP command write to register 0x%02X, value 0x%02X\n", which_register, vdp_cmd_data);
+                } else if(cmd == VDP_CMD_SET_WRITE_ADDRESS) {
+                    vdp_write_address = (vdp_cmd_data << 6) | (data & VDP_REG_A0_A5_MASK);
+                    if(debug) printf("VDP write address set to 0x%04X\n", vdp_write_address);
+                } else if(cmd == VDP_CMD_SET_READ_ADDRESS) {
+                    vdp_read_address = (vdp_cmd_data << 6) | (data & VDP_REG_A0_A5_MASK);
+                    if(debug) printf("VDP read address set to 0x%04X\n", vdp_write_address);
+                } else {
+                    if(debug) printf("uh-oh, VDP cmd was 0x%02X!\n", cmd);
+                }
+                vdp_phase = VDP_CMD_PHASE_FIRST;
             }
-            vdp_phase = (vdp_phase == VDP_PHASE_VALUE) ? VDP_PHASE_REG : VDP_PHASE_VALUE;
+            return true;
+        }
+
+        if(addr == ColecoHW::VDP_DATA_PORT) {
+            if(debug) {
+                static char bitfield[9];
+                for(int i = 0; i < 8; i++) bitfield[i] = (data & (0x80 >> i)) ? '*' : ' ';
+                bitfield[8] = '\0';
+                if(isprint(data)) {
+                    printf("VDP data write 0x%02X, '%s' ('%c')\n", data, bitfield, data);
+                } else {
+                    printf("VDP data write 0x%02X, '%s'\n", data, bitfield);
+                }
+            }
             return true;
         }
 
@@ -92,6 +130,12 @@ struct ColecoHW : board_base
 
     virtual bool io_read(int addr, unsigned char &data)
     {
+        if(addr == ColecoHW::VDP_CMD_PORT) {
+            if(debug) printf("read VDP command port\n");
+            vdp_phase = VDP_CMD_PHASE_FIRST;
+            data = 0;
+            return true;
+        }
         if(addr == ColecoHW::CONTROLLER1_PORT) {
             if(debug) printf("read controller1 port\n");
             data = 0;
@@ -1070,7 +1114,8 @@ int main(int argc, char **argv)
     FILE *fp;
 
     char *bios_name = argv[0];
-    char *cart_name = argv[0];
+    char *cart_name = argv[1];
+
 
     fp = fopen(bios_name, "rb");
     if(fp == NULL) {
@@ -1085,6 +1130,7 @@ int main(int argc, char **argv)
     fclose(fp);
     ROMboard *bios_rom = new ROMboard(0, bios_length, rom_temp);
 
+
     fp = fopen(cart_name, "rb");
     if(fp == NULL) {
         fprintf(stderr, "failed to open %s for reading\n", cart_name);
@@ -1098,10 +1144,12 @@ int main(int argc, char **argv)
     fclose(fp);
     ROMboard *cart_rom = new ROMboard(0x8000, cart_length, rom_temp);
 
+
     boards.push_back(new ColecoHW());
     boards.push_back(bios_rom);
     boards.push_back(cart_rom);
     boards.push_back(new RAMboard(0x6000, 0x2000));
+
 
     for(auto b = boards.begin(); b != boards.end(); b++) {
         (*b)->init();
