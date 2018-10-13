@@ -20,6 +20,8 @@
 #include <rfb/rfb.h>
 #include <rfb/keysym.h>
 
+#include <ao/ao.h>
+
 #include "emulator.h"
 
 #include "z80emu.h"
@@ -37,6 +39,7 @@ int millis_per_slice = 16;
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
+ao_device *aodev;
 
 std::vector<board_base*> boards;
 
@@ -131,11 +134,15 @@ struct TMS9918A
     static const int VR6_SPRITE_PATTERN_MASK = 0x07;
     static const int VR6_SPRITE_PATTERN_SHIFT = 11;
 
+    static const int VDP_STATUS_INT_BIT = 0x80;
+    static const int VDP_STATUS_COINC_BIT = 0x20;
+
     static const int ROW_SHIFT = 5;
     static const int THIRD_SHIFT = 11;
     static const int CHARACTER_PATTERN_SHIFT = 3;
     static const int CHARACTER_COLOR_SHIFT = 3;
     static const int ADDRESS_MASK_FILL = 0x3F;
+
 
     static const int SPRITE_EARLY_CLOCK_MASK = 0x80;
     static const int SPRITE_COLOR_MASK = 0x0F;
@@ -147,7 +154,8 @@ struct TMS9918A
     unsigned int read_address = 0x0;
     unsigned int write_address = 0x0;
 
-    bool vdp_int = 0;
+    bool vdp_int = false;
+    bool sprite_int = false;
 
     TMS9918A()
     {
@@ -208,7 +216,10 @@ struct TMS9918A
     {
         if(cmd) {
             cmd_phase = CMD_PHASE_FIRST;
-            unsigned char data = vdp_int ? 0x80 : 0x0;
+            unsigned char data =
+                (vdp_int ? VDP_STATUS_INT_BIT : 0x0) |
+                (sprite_int ? VDP_STATUS_COINC_BIT : 0x0)
+                ;
             vdp_int = false;
             return data;
         } else {
@@ -267,7 +278,16 @@ struct TMS9918A
 
         } else {
 
-            abort();
+            printf("unhandled video mode %d %d %d\n",
+                bitmap_mode ? 1 : 0,
+                text_mode ? 1 : 0,
+                multicolor_mode ? 1 : 0);
+
+            color[0] = 255;
+            color[1] = 0;
+            color[2] = 0;
+            return;
+            // abort();
         }
 
         int bit = memory[pattern_address] & (0x80 >> pattern_col);
@@ -282,6 +302,7 @@ struct TMS9918A
             int sprite_table_address = (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
             bool mag2x = registers[1] & VR1_MAG2X_MASK;
             bool size4 = registers[1] & VR1_SIZE4_MASK;
+            bool had_pixel = false;
 
             for(int i = 0; i < 32; i++) {
                 unsigned char *sprite = memory + sprite_table_address + i * 4;
@@ -320,16 +341,22 @@ struct TMS9918A
                             int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
                             int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
                             bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
-                            if(bit)
+                            if(bit) {
+                                sprite_int = had_pixel;
                                 nybble_to_color(sprite_color, color);
+                                had_pixel = true;
+                            }
                         }
 
                     } else if((within_sprite_x < 8) && (within_sprite_y < 8)) {
 
                         int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
                         bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
-                        if(bit)
+                        if(bit) {
+                            sprite_int = had_pixel;
                             nybble_to_color(sprite_color, color);
+                            had_pixel = true;
+                        }
                     }
                 }
             }
@@ -351,9 +378,14 @@ struct TMS9918A
                 }
             }
         }
-        vdp_int = true;
+        if(registers[1] & VR1_INT_MASK)
+            vdp_int = true;
     }
 
+    bool nmi_requested()
+    {
+        return vdp_int;
+    }
 };
 
 TMS9918A *VDP;
@@ -438,13 +470,19 @@ struct ColecoHW : board_base
 
         if(addr == ColecoHW::CONTROLLER1_PORT) {
             if(debug) printf("read controller1 port\n");
-            data = ~(user_flags & 0xFF);
+            if(reading_joystick)
+                data = (~user_flags & 0xFF);
+            else
+                data = ((~user_flags >> 8) & 0xFF);
             return true;
         }
 
         if(addr == ColecoHW::CONTROLLER2_PORT) {
             if(debug) printf("read controller2 port\n");
-            data = ~((user_flags >> 8) & 0xFF);
+            if(reading_joystick)
+                data = ((~user_flags >> 16) & 0xFF);
+            else
+                data = ((~user_flags >> 24) & 0xFF);
             return true;
         }
 
@@ -472,6 +510,35 @@ struct ColecoHW : board_base
     }
     virtual void pause(void) {};
     virtual void resume(void) {};
+
+    virtual bool nmi_requested()
+    {
+        return vdp.nmi_requested();
+    }
+
+#if 0
+    void fill_flush_audio()
+    {
+        long long current_sample = clk * sample_rate / machine_clock_rate;
+
+        for(long long i = audio_buffer_next_sample; i < current_sample; i++) {
+            if(where_in_waveform < waveform_length) {
+                unsigned char level = waveform[where_in_waveform++];
+                speaker_level = speaker_transitioning_to_high ? level : (255 - level);
+            }
+
+            audio_buffer[i % audio_buffer_size] = speaker_level;
+
+            if(i - audio_buffer_start_sample == audio_buffer_size - 1) {
+                audio_flush(audio_buffer, audio_buffer_size);
+
+                audio_buffer_start_sample = i + 1;
+            }
+        }
+        audio_buffer_next_sample = current_sample;
+    }
+#endif
+
 };
 
 struct RAMboard : board_base
@@ -1403,13 +1470,13 @@ void usage(char *progname)
     printf("\n");
 }
 
-const int CONTROLLER_FIRE_BIT = 0x40;
-const int CONTROLLER_NORTH_BIT = 0x08;
-const int CONTROLLER_EAST_BIT = 0x04;
-const int CONTROLLER_SOUTH_BIT = 0x02;
-const int CONTROLLER_WEST_BIT = 0x01;
-const int CONTROLLER_KEYPAD_MASK = 0x0F;
-const int CONTROLLER_KEYPAD_1 = 0x02;
+const int CONTROLLER1_FIRE_BIT = 0x40;
+const int CONTROLLER1_NORTH_BIT = 0x01; // 0x08;
+const int CONTROLLER1_EAST_BIT = 0x02; // 0x04;
+const int CONTROLLER1_SOUTH_BIT = 0x04; // 0x02;
+const int CONTROLLER1_WEST_BIT = 0x08; // 0x01;
+const int CONTROLLER1_KEYPAD_MASK = 0xFF00;
+const int CONTROLLER1_KEYPAD_1 = 0x0200;
 
 static void handleKey(rfbBool down, rfbKeySym key, rfbClientPtr cl)
 {
@@ -1428,48 +1495,74 @@ static void handleKey(rfbBool down, rfbKeySym key, rfbClientPtr cl)
         } else {
             switch(key) {
                 case XK_w:
-                    user_flags = (user_flags & ~CONTROLLER_NORTH_BIT) | CONTROLLER_NORTH_BIT;
+                    user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT) | CONTROLLER1_NORTH_BIT;
                     break;
                 case XK_a:
-                    user_flags = (user_flags & ~CONTROLLER_WEST_BIT) | CONTROLLER_WEST_BIT;
+                    user_flags = (user_flags & ~CONTROLLER1_WEST_BIT) | CONTROLLER1_WEST_BIT;
                     break;
                 case XK_s:
-                    user_flags = (user_flags & ~CONTROLLER_SOUTH_BIT) | CONTROLLER_SOUTH_BIT;
+                    user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT) | CONTROLLER1_SOUTH_BIT;
                     break;
                 case XK_d:
-                    user_flags = (user_flags & ~CONTROLLER_EAST_BIT) | CONTROLLER_EAST_BIT;
+                    user_flags = (user_flags & ~CONTROLLER1_EAST_BIT) | CONTROLLER1_EAST_BIT;
                     break;
                 case XK_space:
-                    user_flags = (user_flags & ~CONTROLLER_FIRE_BIT) | CONTROLLER_FIRE_BIT;
+                    user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT) | CONTROLLER1_FIRE_BIT;
                     break;
                 case XK_1:
-                    user_flags = (user_flags & ~CONTROLLER_KEYPAD_MASK) | CONTROLLER_KEYPAD_1;
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_1;
                     break;
             }
         }
     } else {
         switch(key) {
             case XK_w:
-                user_flags = (user_flags & ~CONTROLLER_NORTH_BIT);
+                user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT);
                 break;
             case XK_a:
-                user_flags = (user_flags & ~CONTROLLER_WEST_BIT);
+                user_flags = (user_flags & ~CONTROLLER1_WEST_BIT);
                 break;
             case XK_s:
-                user_flags = (user_flags & ~CONTROLLER_SOUTH_BIT);
+                user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT);
                 break;
             case XK_d:
-                user_flags = (user_flags & ~CONTROLLER_EAST_BIT);
+                user_flags = (user_flags & ~CONTROLLER1_EAST_BIT);
                 break;
             case XK_space:
-                user_flags = (user_flags & ~CONTROLLER_FIRE_BIT);
+                user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT);
                 break;
             case XK_1:
-                user_flags = (user_flags & ~CONTROLLER_KEYPAD_MASK);
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
                 break;
         }
     }
 }
+
+ao_device *open_ao()
+{
+    ao_device *device;
+    ao_sample_format format;
+    int default_driver;
+
+    ao_initialize();
+
+    default_driver = ao_default_driver_id();
+
+    memset(&format, 0, sizeof(format));
+    format.bits = 8;
+    format.channels = 1;
+    format.rate = 44100;
+    format.byte_format = AO_FMT_LITTLE;
+
+    /* -- Open driver -- */
+    device = ao_open_live(default_driver, &format, NULL /* no options */);
+    if (device == NULL) {
+        fprintf(stderr, "Error opening libao audio device.\n");
+        return nullptr;
+    }
+    return device;
+}
+
 
 int main(int argc, char **argv)
 {
@@ -1514,6 +1607,10 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
+    aodev = open_ao();
+    if(aodev == NULL)
+        exit(EXIT_FAILURE);
+
     static unsigned char rom_temp[65536];
     FILE *fp;
 
@@ -1548,8 +1645,10 @@ int main(int argc, char **argv)
     fclose(fp);
     ROMboard *cart_rom = new ROMboard(0x8000, cart_length, rom_temp);
 
+    ColecoHW* coleco = new ColecoHW();
+    // ao_play(aodev, buf, sz);
 
-    boards.push_back(new ColecoHW());
+    boards.push_back(coleco);
     boards.push_back(bios_rom);
     boards.push_back(cart_rom);
     boards.push_back(new RAMboard(0x6000, 0x2000));
@@ -1636,6 +1735,9 @@ int main(int argc, char **argv)
         gettimeofday(&tv, NULL);
         stop = tv.tv_sec + tv.tv_usec / 1000000.0;
         // printf("%f in board irq check\n", (stop - start) * 1000000);
+
+        if(coleco->nmi_requested())
+            Z80NonMaskableInterrupt (&state);
 
         gettimeofday(&tv, NULL);
         start = tv.tv_sec + tv.tv_usec / 1000000.0;
