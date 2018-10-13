@@ -4,9 +4,11 @@
 #include <cassert>
 #include <cerrno>
 #include <string>
+#include <map>
+#include <chrono>
+#include <thread>
 #include <unistd.h>
 #include <signal.h>
-#include <map>
 #include <sys/time.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
@@ -14,6 +16,9 @@
 #include <fcntl.h>
 #include <readline/readline.h>
 #include <readline/history.h>
+
+#include <rfb/rfb.h>
+#include <rfb/keysym.h>
 
 #include "emulator.h"
 
@@ -27,9 +32,27 @@ unsigned long user_flags = 0;
 bool Z80_INTERRUPT_FETCH = false;
 unsigned short Z80_INTERRUPT_FETCH_DATA;
 
+const int machine_clock_rate = 3579545;
+int millis_per_slice = 16;
+volatile bool run_fast = false;
+volatile bool pause_cpu = false;
+
+
 std::vector<board_base*> boards;
 
 bool quit = false;
+
+unsigned char framebuffer[512*384*4];
+
+void write_image(unsigned char image[512 * 384 * 4], FILE *fp)
+{
+    fprintf(fp, "P6 512 384 255\n");
+    for(int row = 0; row < 384; row++) {
+        for(int col = 0; col < 512; col++) {
+            fwrite(image + (row * 512 + col) * 4, 3, 1, fp);
+        }
+    }
+}
 
 unsigned char nybbles_to_color[16][3] = {
     {0, 0, 0},
@@ -61,7 +84,7 @@ void nybble_to_color(unsigned int nybble, unsigned char color[3])
 
 struct TMS9918A
 {
-    bool debug = true;
+    bool debug = false;
 
     static const int MEMORY_SIZE = 16384;
     unsigned char memory[16384];
@@ -124,6 +147,8 @@ struct TMS9918A
     unsigned int read_address = 0x0;
     unsigned int write_address = 0x0;
 
+    bool vdp_int = 0;
+
     TMS9918A()
     {
         memset(memory, 0, MEMORY_SIZE);
@@ -183,7 +208,9 @@ struct TMS9918A
     {
         if(cmd) {
             cmd_phase = CMD_PHASE_FIRST;
-            return 0;
+            unsigned char data = vdp_int ? 0x80 : 0x0;
+            vdp_int = false;
+            return data;
         } else {
             unsigned char data = memory[read_address++];
             read_address = read_address % MEMORY_SIZE;
@@ -309,25 +336,24 @@ struct TMS9918A
         }
     }
 
-    void dump_image(FILE *fp)
+    void perform_scanout(unsigned char image[512 * 384 * 4])
     {
-        bool bitmap_mode = (registers[0] & VR0_BITMAP_MASK);
-        bool text_mode = (registers[1] & VR1_TEXT_MASK);
-        bool multicolor_mode = (registers[1] & VR1_MULTIC_MASK);
-
-        printf("VR0 %d, VR1 %d %d\n", bitmap_mode ? 1 : 0,
-            text_mode ? 1 : 0,
-            multicolor_mode ? 1 : 0);
-
-        fprintf(fp, "P6 256 192 255\n");
         for(int row = 0; row < 192; row++) {
             for(int col = 0; col < 256; col++) {
                 unsigned char color[3];
                 get_color(col, row, color);
-                fwrite(color, 3, 1, fp);
+                for(int j = 0; j < 2; j++) {
+                    for(int i = 0; i < 2; i++) {
+                        unsigned char *pixel = image + ((row * 2 + j) * 512 + col * 2 + i) * 4;
+                        for(int c = 0; c < 3; c++)
+                            pixel[c] = color[c];
+                    }
+                }
             }
         }
+        vdp_int = true;
     }
+
 };
 
 TMS9918A *VDP;
@@ -354,7 +380,7 @@ struct ColecoHW : board_base
 
     ColecoHW()
     {
-        debug = true;
+        debug = false;
         VDP = &vdp;
     }
 
@@ -412,13 +438,13 @@ struct ColecoHW : board_base
 
         if(addr == ColecoHW::CONTROLLER1_PORT) {
             if(debug) printf("read controller1 port\n");
-            data = user_flags & 0xFF;
+            data = ~(user_flags & 0xFF);
             return true;
         }
 
         if(addr == ColecoHW::CONTROLLER2_PORT) {
             if(debug) printf("read controller2 port\n");
-            data = (user_flags >> 8) & 0xFF;
+            data = ~((user_flags >> 8) & 0xFF);
             return true;
         }
 
@@ -940,7 +966,12 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     FILE *fp = fopen("output.ppm", "w");
 
     // XXX
-    VDP->dump_image(fp);
+    std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
+    VDP->perform_scanout(framebuffer);
+    std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed = now - start_time;
+    if(0) printf("dump time %f seconds\n", elapsed.count());
+    write_image(framebuffer, fp);
     fclose(fp);
 
     return false;
@@ -1372,6 +1403,74 @@ void usage(char *progname)
     printf("\n");
 }
 
+const int CONTROLLER_FIRE_BIT = 0x40;
+const int CONTROLLER_NORTH_BIT = 0x08;
+const int CONTROLLER_EAST_BIT = 0x04;
+const int CONTROLLER_SOUTH_BIT = 0x02;
+const int CONTROLLER_WEST_BIT = 0x01;
+const int CONTROLLER_KEYPAD_MASK = 0x0F;
+const int CONTROLLER_KEYPAD_1 = 0x02;
+
+static void handleKey(rfbBool down, rfbKeySym key, rfbClientPtr cl)
+{
+    if(down) {
+        if(key==XK_Escape) {
+            rfbCloseClient(cl);
+            quit = true;
+        } else if(key==XK_F12) {
+            /* close down server, disconnecting clients */
+            rfbShutdownServer(cl->screen,TRUE);
+            quit = true;
+        } else if(key==XK_F11) {
+            /* close down server, but wait for all clients to disconnect */
+            rfbShutdownServer(cl->screen,FALSE);
+            quit = true;
+        } else {
+            switch(key) {
+                case XK_w:
+                    user_flags = (user_flags & ~CONTROLLER_NORTH_BIT) | CONTROLLER_NORTH_BIT;
+                    break;
+                case XK_a:
+                    user_flags = (user_flags & ~CONTROLLER_WEST_BIT) | CONTROLLER_WEST_BIT;
+                    break;
+                case XK_s:
+                    user_flags = (user_flags & ~CONTROLLER_SOUTH_BIT) | CONTROLLER_SOUTH_BIT;
+                    break;
+                case XK_d:
+                    user_flags = (user_flags & ~CONTROLLER_EAST_BIT) | CONTROLLER_EAST_BIT;
+                    break;
+                case XK_space:
+                    user_flags = (user_flags & ~CONTROLLER_FIRE_BIT) | CONTROLLER_FIRE_BIT;
+                    break;
+                case XK_1:
+                    user_flags = (user_flags & ~CONTROLLER_KEYPAD_MASK) | CONTROLLER_KEYPAD_1;
+                    break;
+            }
+        }
+    } else {
+        switch(key) {
+            case XK_w:
+                user_flags = (user_flags & ~CONTROLLER_NORTH_BIT);
+                break;
+            case XK_a:
+                user_flags = (user_flags & ~CONTROLLER_WEST_BIT);
+                break;
+            case XK_s:
+                user_flags = (user_flags & ~CONTROLLER_SOUTH_BIT);
+                break;
+            case XK_d:
+                user_flags = (user_flags & ~CONTROLLER_EAST_BIT);
+                break;
+            case XK_space:
+                user_flags = (user_flags & ~CONTROLLER_FIRE_BIT);
+                break;
+            case XK_1:
+                user_flags = (user_flags & ~CONTROLLER_KEYPAD_MASK);
+                break;
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     const int cycles_per_loop = 50000;
@@ -1455,6 +1554,14 @@ int main(int argc, char **argv)
     boards.push_back(cart_rom);
     boards.push_back(new RAMboard(0x6000, 0x2000));
 
+    int rfbargc = 0;
+    char **rfbargv = 0;
+    rfbScreenInfoPtr server = rfbGetScreen(&rfbargc,rfbargv,512,384,8,3,4);
+    server->frameBuffer = (char *)framebuffer;
+    server->kbdAddEvent = handleKey;
+
+    rfbInitServer(server);
+    rfbProcessEvents(server, 1000);
 
     for(auto b = boards.begin(); b != boards.end(); b++) {
         (*b)->init();
@@ -1469,21 +1576,17 @@ int main(int argc, char **argv)
         debugger->process_line(boards, &state, debugger_argument);
     }
 
-    time_t time_then;
-    time_then = time(NULL);
+    std::chrono::time_point<std::chrono::system_clock> then = std::chrono::system_clock::now();
+
     unsigned long long total_cycles = 0;
-    unsigned long long cycles_then = 0;
     while(!quit)
     {
+        int clocks_per_slice = millis_per_slice * machine_clock_rate / 1000 * 1.05;
+
         if(debugger && (enter_debugger || debugger->should_debug(boards, &state))) {
             debugger->go(stdin, boards, &state);
             enter_debugger = false;
         } else {
-            struct timeval tv;
-            double start, stop;
-
-            gettimeofday(&tv, NULL);
-            start = tv.tv_sec + tv.tv_usec / 1000000.0;
             if(debugger) {
                 unsigned long long cycles = 0;
                 do {
@@ -1495,21 +1598,24 @@ int main(int argc, char **argv)
                 } while(cycles < cycles_per_loop);
                 total_cycles += cycles;
             } else {
-                total_cycles += Z80Emulate(&state, cycles_per_loop);
+                unsigned long long cycles = 0;
+                do {
+                    cycles += Z80Emulate(&state, 1);
+                } while(cycles < cycles_per_loop);
+                total_cycles += cycles;
             }
-            time_t then;
-            then = time(NULL);
 
-            time_t time_now;
-            time_now = time(NULL);
-            if(time_now != time_then) {
-                if(debug) printf("%llu cycles per second\n", total_cycles - cycles_then);
-                cycles_then = total_cycles;
-                time_then = time_now;
-            }
-            gettimeofday(&tv, NULL);
-            stop = tv.tv_sec + tv.tv_usec / 1000000.0;
-            // printf("%f in Emulate\n", (stop - start) * 1000000);
+            VDP->perform_scanout(framebuffer);
+            rfbMarkRectAsModified(server, 0, 0, 512, 384);
+            rfbProcessEvents(server, 1 /* 1000 */);
+
+            std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
+
+            auto elapsed_millis = std::chrono::duration_cast<std::chrono::milliseconds>(now - then);
+            if(!run_fast || pause_cpu)
+                std::this_thread::sleep_for(std::chrono::milliseconds(clocks_per_slice * 1000 / machine_clock_rate) - elapsed_millis);
+
+            then = now;
         }
 
         struct timeval tv;
