@@ -29,9 +29,95 @@ std::vector<board_base*> boards;
 
 bool quit = false;
 
+struct TMS9918A
+{
+    bool debug = true;
+
+    static const int MEMORY_SIZE = 16384;
+    unsigned char memory[16384];
+    unsigned char registers[64];
+
+    static const int REG_A0_A5_MASK = 0x3F;
+    static const int CMD_MASK = 0xC0;
+    static const int CMD_SET_REGISTER = 0x80;
+    static const int CMD_SET_WRITE_ADDRESS = 0x40;
+    static const int CMD_SET_READ_ADDRESS = 0x00;
+
+    enum {CMD_PHASE_FIRST, CMD_PHASE_SECOND} cmd_phase = CMD_PHASE_FIRST;
+    unsigned char cmd_data = 0x0;
+    unsigned int read_address = 0x0;
+    unsigned int write_address = 0x0;
+
+    TMS9918A()
+    {
+        memset(memory, 0, MEMORY_SIZE);
+        memset(registers, 0, 64);
+    }
+
+    void write(int cmd, unsigned char data)
+    {
+        if(cmd) {
+
+            if(cmd_phase == CMD_PHASE_FIRST) {
+
+                if(debug) printf("VDP command write, first byte 0x%02X\n", data);
+                cmd_data = data;
+                cmd_phase = CMD_PHASE_SECOND;
+
+            } else {
+
+                int cmd = data & CMD_MASK;
+                if(cmd == CMD_SET_REGISTER) {
+                    int which_register = data & REG_A0_A5_MASK;
+                    if(debug) printf("VDP command write to register 0x%02X, value 0x%02X\n", which_register, cmd_data);
+                    registers[which_register] = cmd_data;
+                } else if(cmd == CMD_SET_WRITE_ADDRESS) {
+                    write_address = (cmd_data << 6) | (data & REG_A0_A5_MASK);
+                    if(debug) printf("VDP write address set to 0x%04X\n", write_address);
+                } else if(cmd == CMD_SET_READ_ADDRESS) {
+                    read_address = (cmd_data << 6) | (data & REG_A0_A5_MASK);
+                    if(debug) printf("VDP read address set to 0x%04X\n", write_address);
+                } else {
+                    if(debug) printf("uh-oh, VDP cmd was 0x%02X!\n", cmd);
+                }
+                cmd_phase = CMD_PHASE_FIRST;
+            }
+
+        } else {
+
+            if(debug) {
+                static char bitfield[9];
+                for(int i = 0; i < 8; i++) bitfield[i] = (data & (0x80 >> i)) ? '*' : ' ';
+                bitfield[8] = '\0';
+                if(isprint(data)) {
+                    printf("VDP data write 0x%02X, '%s' ('%c')\n", data, bitfield, data);
+                } else {
+                    printf("VDP data write 0x%02X, '%s'\n", data, bitfield);
+                }
+            }
+            memory[write_address++] = data;
+            write_address = write_address % MEMORY_SIZE;
+        }
+
+    }
+    unsigned char read(int cmd)
+    {
+        if(cmd) {
+            cmd_phase = CMD_PHASE_FIRST;
+            return 0;
+        } else {
+            unsigned char data = memory[read_address++];
+            read_address = read_address % MEMORY_SIZE;
+            return data;
+        }
+    }
+};
+
 struct ColecoHW : board_base
 {
     bool debug;
+
+    TMS9918A vdp;
 
     bool reading_joystick = true;
 
@@ -47,17 +133,6 @@ struct ColecoHW : board_base
     static const int CONTROLLER1_PORT = 0xFC;
     static const int CONTROLLER2_PORT = 0xFF;
 
-    static const int VDP_REG_A0_A5_MASK = 0x3F;
-    static const int VDP_CMD_MASK = 0xC0;
-    static const int VDP_CMD_SET_REGISTER = 0x80;
-    static const int VDP_CMD_SET_WRITE_ADDRESS = 0x40;
-    static const int VDP_CMD_SET_READ_ADDRESS = 0x00;
-
-    enum {VDP_CMD_PHASE_FIRST, VDP_CMD_PHASE_SECOND} vdp_phase = VDP_CMD_PHASE_FIRST;
-    unsigned char vdp_cmd_data = 0x0;
-    unsigned int vdp_read_address = 0x0;
-    unsigned int vdp_write_address = 0x0;
-
     ColecoHW()
     {
         debug = true;
@@ -71,40 +146,12 @@ struct ColecoHW : board_base
         // }
 
         if(addr == ColecoHW::VDP_CMD_PORT) {
-            if(vdp_phase == VDP_CMD_PHASE_FIRST) {
-                if(debug) printf("VDP command write, first byte 0x%02X\n", data);
-                vdp_cmd_data = data;
-                vdp_phase = VDP_CMD_PHASE_SECOND;
-            } else {
-                int cmd = data & VDP_CMD_MASK;
-                if(cmd == VDP_CMD_SET_REGISTER) {
-                    int which_register = data & VDP_REG_A0_A5_MASK;
-                    if(debug) printf("VDP command write to register 0x%02X, value 0x%02X\n", which_register, vdp_cmd_data);
-                } else if(cmd == VDP_CMD_SET_WRITE_ADDRESS) {
-                    vdp_write_address = (vdp_cmd_data << 6) | (data & VDP_REG_A0_A5_MASK);
-                    if(debug) printf("VDP write address set to 0x%04X\n", vdp_write_address);
-                } else if(cmd == VDP_CMD_SET_READ_ADDRESS) {
-                    vdp_read_address = (vdp_cmd_data << 6) | (data & VDP_REG_A0_A5_MASK);
-                    if(debug) printf("VDP read address set to 0x%04X\n", vdp_write_address);
-                } else {
-                    if(debug) printf("uh-oh, VDP cmd was 0x%02X!\n", cmd);
-                }
-                vdp_phase = VDP_CMD_PHASE_FIRST;
-            }
+            vdp.write(1, data);
             return true;
         }
 
         if(addr == ColecoHW::VDP_DATA_PORT) {
-            if(debug) {
-                static char bitfield[9];
-                for(int i = 0; i < 8; i++) bitfield[i] = (data & (0x80 >> i)) ? '*' : ' ';
-                bitfield[8] = '\0';
-                if(isprint(data)) {
-                    printf("VDP data write 0x%02X, '%s' ('%c')\n", data, bitfield, data);
-                } else {
-                    printf("VDP data write 0x%02X, '%s'\n", data, bitfield);
-                }
-            }
+            vdp.write(0, data);
             return true;
         }
 
@@ -132,15 +179,23 @@ struct ColecoHW : board_base
     {
         if(addr == ColecoHW::VDP_CMD_PORT) {
             if(debug) printf("read VDP command port\n");
-            vdp_phase = VDP_CMD_PHASE_FIRST;
-            data = 0;
+            data = vdp.read(1);
             return true;
         }
+
+        if(addr == ColecoHW::VDP_DATA_PORT) {
+            if(debug) printf("read VDP command port\n");
+            data = vdp.read(0);
+            return true;
+        }
+
+
         if(addr == ColecoHW::CONTROLLER1_PORT) {
             if(debug) printf("read controller1 port\n");
             data = 0;
             return true;
         }
+
         if(addr == ColecoHW::CONTROLLER2_PORT) {
             if(debug) printf("read controller2 port\n");
             data = 0;
