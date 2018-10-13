@@ -22,12 +22,42 @@
 
 const bool debug = false;
 
+unsigned long user_flags = 0;
+
 bool Z80_INTERRUPT_FETCH = false;
 unsigned short Z80_INTERRUPT_FETCH_DATA;
 
 std::vector<board_base*> boards;
 
 bool quit = false;
+
+unsigned char nybbles_to_color[16][3] = {
+    {0, 0, 0},
+    {0, 0, 0},
+    {37, 196, 37},
+    {102, 226, 102},
+    {37, 37, 226},
+    {70, 102, 226},
+    {165, 37, 37},
+    {70, 196, 226},
+    {226, 37, 37},
+    {226, 102, 102},
+    {196, 196, 37},
+    {196, 196, 134},
+    {37, 134, 37},
+    {196, 70, 165},
+    {165, 165, 165},
+    {226, 226, 226},
+};
+
+void nybble_to_color(unsigned int nybble, unsigned char color[3])
+{
+    if(nybble == 0)
+        return;
+    color[0] = nybbles_to_color[nybble][0];
+    color[1] = nybbles_to_color[nybble][1];
+    color[2] = nybbles_to_color[nybble][2];
+}
 
 struct TMS9918A
 {
@@ -42,6 +72,52 @@ struct TMS9918A
     static const int CMD_SET_REGISTER = 0x80;
     static const int CMD_SET_WRITE_ADDRESS = 0x40;
     static const int CMD_SET_READ_ADDRESS = 0x00;
+
+    static const int VR0_BITMAP_MASK = 0x02;
+    static const int VR0_EXTVID_MASK = 0x01;
+
+    static const int VR1_16K_MASK = 0x80;
+    static const int VR1_BLANK_MASK = 0x40;
+    static const int VR1_INT_MASK = 0x20;
+    static const int VR1_MULTIC_MASK = 0x10;
+    static const int VR1_TEXT_MASK = 0x08;
+    static const int VR1_SIZE4_MASK = 0x02;
+    static const int VR1_MAG2X_MASK = 0x01;
+
+    static const int VR2_SCREENIMAGE_MASK = 0x0F;
+    static const int VR2_SCREENIMAGE_SHIFT = 10;
+
+    static const int VR3_COLORTABLE_MASK_STANDARD = 0xFF;
+    static const int VR3_COLORTABLE_SHIFT_STANDARD = 6;
+
+    static const int VR3_COLORTABLE_MASK_BITMAP = 0x80;
+    static const int VR3_COLORTABLE_SHIFT_BITMAP = 6;
+
+    static const int VR3_ADDRESS_MASK_BITMAP = 0x7F;
+    static const int VR3_ADDRESS_MASK_SHIFT = 6;
+
+    static const int VR4_PATTERN_MASK_STANDARD = 0x07;
+    static const int VR4_PATTERN_SHIFT_STANDARD = 11;
+
+    static const int VR4_PATTERN_MASK_BITMAP = 0x04;
+    static const int VR4_PATTERN_SHIFT_BITMAP = 11;
+
+    static const int VR5_SPRITE_ATTR_MASK = 0x7F;
+    static const int VR5_SPRITE_ATTR_SHIFT = 7;
+
+    static const int VR6_SPRITE_PATTERN_MASK = 0x07;
+    static const int VR6_SPRITE_PATTERN_SHIFT = 11;
+
+    static const int ROW_SHIFT = 5;
+    static const int THIRD_SHIFT = 11;
+    static const int CHARACTER_PATTERN_SHIFT = 3;
+    static const int CHARACTER_COLOR_SHIFT = 3;
+    static const int ADDRESS_MASK_FILL = 0x3F;
+
+    static const int SPRITE_EARLY_CLOCK_MASK = 0x80;
+    static const int SPRITE_COLOR_MASK = 0x0F;
+    static const int SPRITE_NAME_SHIFT = 3;
+    static const int SPRITE_NAME_MASK_SIZE4 = 0xFC;
 
     enum {CMD_PHASE_FIRST, CMD_PHASE_SECOND} cmd_phase = CMD_PHASE_FIRST;
     unsigned char cmd_data = 0x0;
@@ -72,10 +148,12 @@ struct TMS9918A
                     if(debug) printf("VDP command write to register 0x%02X, value 0x%02X\n", which_register, cmd_data);
                     registers[which_register] = cmd_data;
                 } else if(cmd == CMD_SET_WRITE_ADDRESS) {
-                    write_address = (cmd_data << 6) | (data & REG_A0_A5_MASK);
+                    // write_address = (cmd_data << 6) | (data & REG_A0_A5_MASK);
+                    write_address = ((data & REG_A0_A5_MASK) << 8) | cmd_data;
                     if(debug) printf("VDP write address set to 0x%04X\n", write_address);
                 } else if(cmd == CMD_SET_READ_ADDRESS) {
-                    read_address = (cmd_data << 6) | (data & REG_A0_A5_MASK);
+                    // read_address = (cmd_data << 6) | (data & REG_A0_A5_MASK);
+                    read_address = ((data & REG_A0_A5_MASK) << 8) | cmd_data;
                     if(debug) printf("VDP read address set to 0x%04X\n", write_address);
                 } else {
                     if(debug) printf("uh-oh, VDP cmd was 0x%02X!\n", cmd);
@@ -100,6 +178,7 @@ struct TMS9918A
         }
 
     }
+
     unsigned char read(int cmd)
     {
         if(cmd) {
@@ -111,7 +190,147 @@ struct TMS9918A
             return data;
         }
     }
+
+    void get_color(int x, int y, unsigned char color[3])
+    {
+        bool bitmap_mode = (registers[0] & VR0_BITMAP_MASK);
+        bool text_mode = (registers[1] & VR1_TEXT_MASK);
+        bool multicolor_mode = (registers[1] & VR1_MULTIC_MASK);
+
+        color[0] = 0;
+        color[1] = 0;
+        color[2] = 0;
+
+        int col = x / 8;
+        int row = y / 8;
+        int pattern_col = x % 8;
+        int pattern_row = y % 8;
+
+        int which_color = 8;
+        int pattern_address;
+        int color_address;
+
+        int screen_address = ((registers[2] & VR2_SCREENIMAGE_MASK) << VR2_SCREENIMAGE_SHIFT) | (row << ROW_SHIFT) | col;
+        unsigned char pattern_name = memory[screen_address];
+
+        bool sprites_valid = false;
+
+        if(!bitmap_mode && !text_mode && !multicolor_mode) {
+            // Standard mode
+
+            pattern_address = ((registers[4] & VR4_PATTERN_MASK_STANDARD) << VR4_PATTERN_SHIFT_STANDARD) | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row;
+
+            color_address = ((registers[3] & VR3_COLORTABLE_MASK_STANDARD) << VR3_COLORTABLE_SHIFT_STANDARD) | (pattern_name >> CHARACTER_COLOR_SHIFT);
+
+            sprites_valid = true;
+
+        } else if(bitmap_mode && !text_mode && !multicolor_mode) {
+            // bitmap mode
+
+            int third = (row / 8) << THIRD_SHIFT;
+
+            int address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
+
+            // pattern_address = ((((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask) | pattern_row;
+            pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) | pattern_row;
+
+            color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row) & address_mask; // XXX?
+
+            sprites_valid = true;
+
+        } else {
+
+            abort();
+        }
+
+        int bit = memory[pattern_address] & (0x80 >> pattern_col);
+
+        unsigned int colortable = memory[color_address];
+        
+        which_color = bit ? ((colortable >> 4) & 0xf) : (colortable & 0xf);
+
+        nybble_to_color(which_color, color);
+
+        if(sprites_valid) {
+            int sprite_table_address = (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
+            bool mag2x = registers[1] & VR1_MAG2X_MASK;
+            bool size4 = registers[1] & VR1_SIZE4_MASK;
+
+            for(int i = 0; i < 32; i++) {
+                unsigned char *sprite = memory + sprite_table_address + i * 4;
+                int sprite_y = sprite[0] + 1;
+
+                if(sprite[0] == 0xD0)
+                    break; // So says http://www.unige.ch/medecine/nouspikel/ti99/tms9918a.htm
+
+                int sprite_x = sprite[1];
+                int sprite_name = sprite[2];
+                bool sprite_earlyclock = sprite[3] & SPRITE_EARLY_CLOCK_MASK;
+                int sprite_color = sprite[3] & SPRITE_COLOR_MASK;
+
+                // printf("sprite %d: %d %d %d %d\n", i, sprite_x, sprite_y, sprite_name, sprite_color);
+
+                if(sprite_earlyclock)
+                    sprite_x -= 32;
+
+                if(x >= sprite_x && y >= sprite_y) {
+                    int within_sprite_x, within_sprite_y;
+
+                    if(mag2x) {
+                        within_sprite_x = (x - sprite_x) / 2;
+                        within_sprite_y = (y - sprite_y) / 2;
+                    } else {
+                        within_sprite_x = x - sprite_x;
+                        within_sprite_y = y - sprite_y;
+                    }
+
+                    if(size4) {
+                        if((within_sprite_x < 16) && (within_sprite_y < 16)) {
+
+                            int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
+                            int within_quadrant_y = within_sprite_y % 8;
+                            int within_quadrant_x = within_sprite_x % 8;
+                            int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
+                            int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
+                            bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
+                            if(bit)
+                                nybble_to_color(sprite_color, color);
+                        }
+
+                    } else if((within_sprite_x < 8) && (within_sprite_y < 8)) {
+
+                        int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
+                        bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
+                        if(bit)
+                            nybble_to_color(sprite_color, color);
+                    }
+                }
+            }
+        }
+    }
+
+    void dump_image(FILE *fp)
+    {
+        bool bitmap_mode = (registers[0] & VR0_BITMAP_MASK);
+        bool text_mode = (registers[1] & VR1_TEXT_MASK);
+        bool multicolor_mode = (registers[1] & VR1_MULTIC_MASK);
+
+        printf("VR0 %d, VR1 %d %d\n", bitmap_mode ? 1 : 0,
+            text_mode ? 1 : 0,
+            multicolor_mode ? 1 : 0);
+
+        fprintf(fp, "P6 256 192 255\n");
+        for(int row = 0; row < 192; row++) {
+            for(int col = 0; col < 256; col++) {
+                unsigned char color[3];
+                get_color(col, row, color);
+                fwrite(color, 3, 1, fp);
+            }
+        }
+    }
 };
+
+TMS9918A *VDP;
 
 struct ColecoHW : board_base
 {
@@ -136,6 +355,7 @@ struct ColecoHW : board_base
     ColecoHW()
     {
         debug = true;
+        VDP = &vdp;
     }
 
     virtual bool io_write(int addr, unsigned char data)
@@ -192,13 +412,13 @@ struct ColecoHW : board_base
 
         if(addr == ColecoHW::CONTROLLER1_PORT) {
             if(debug) printf("read controller1 port\n");
-            data = 0;
+            data = user_flags & 0xFF;
             return true;
         }
 
         if(addr == ColecoHW::CONTROLLER2_PORT) {
             if(debug) printf("read controller2 port\n");
-            data = 0;
+            data = (user_flags >> 8) & 0xFF;
             return true;
         }
 
@@ -698,6 +918,34 @@ bool debugger_fill(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
     return false;
 }
 
+bool debugger_flags(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+{
+    if(argc != 2) {
+        fprintf(stderr, "flags: expected flag value\n");
+        return false;
+    }
+    char *endptr;
+
+    user_flags = strtol(argv[1], &endptr, 0);
+    if(*endptr != '\0') {
+        printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[2]);
+        return false;
+    }
+
+    return false;
+}
+
+bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+{
+    FILE *fp = fopen("output.ppm", "w");
+
+    // XXX
+    VDP->dump_image(fp);
+    fclose(fp);
+
+    return false;
+}
+
 bool debugger_in(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
@@ -965,6 +1213,8 @@ bool debugger_list(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
 
 void populate_command_handlers()
 {
+    command_handlers["image"] = debugger_image;
+    command_handlers["flags"] = debugger_flags;
     command_handlers["?"] = debugger_help;
     command_handlers["help"] = debugger_help;
     command_handlers["readhex"] = debugger_readhex;
