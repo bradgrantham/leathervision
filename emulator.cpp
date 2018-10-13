@@ -35,6 +35,7 @@ bool Z80_INTERRUPT_FETCH = false;
 unsigned short Z80_INTERRUPT_FETCH_DATA;
 
 const int machine_clock_rate = 3579545;
+unsigned long long clk = 0;
 int millis_per_slice = 16;
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
@@ -45,14 +46,18 @@ std::vector<board_base*> boards;
 
 bool quit = false;
 
-unsigned char framebuffer[512*384*4];
+const int SCREEN_X = 256;
+const int SCREEN_Y = 192;
+const int SCREEN_SCALE = 3;
 
-void write_image(unsigned char image[512 * 384 * 4], FILE *fp)
+unsigned char framebuffer[SCREEN_X * SCREEN_SCALE * SCREEN_Y * SCREEN_SCALE * 4];
+
+void write_image(unsigned char image[SCREEN_X * SCREEN_SCALE * SCREEN_Y * SCREEN_SCALE * 4], FILE *fp)
 {
-    fprintf(fp, "P6 512 384 255\n");
-    for(int row = 0; row < 384; row++) {
-        for(int col = 0; col < 512; col++) {
-            fwrite(image + (row * 512 + col) * 4, 3, 1, fp);
+    fprintf(fp, "P6 %d %d 255\n", SCREEN_X * SCREEN_SCALE, SCREEN_Y * SCREEN_SCALE);
+    for(int row = 0; row < SCREEN_Y * SCREEN_SCALE; row++) {
+        for(int col = 0; col < SCREEN_X * SCREEN_SCALE; col++) {
+            fwrite(image + (row * SCREEN_X * SCREEN_SCALE + col) * 4, 3, 1, fp);
         }
     }
 }
@@ -84,6 +89,139 @@ void nybble_to_color(unsigned int nybble, unsigned char color[3])
     color[1] = nybbles_to_color[nybble][1];
     color[2] = nybbles_to_color[nybble][2];
 }
+
+typedef std::function<void (char *audiobuffer, size_t dist)> audio_flush_func;
+audio_flush_func audio_flush;
+
+struct SN76489A
+{
+    bool debug = false;
+    unsigned int clock_rate;
+
+    SN76489A(unsigned int clock_rate_) :
+        clock_rate(clock_rate_)
+    {
+    }
+
+    int phase = 0;
+
+    unsigned char cmd_latched = 0;
+    static const int CMD_BIT = 0x80;
+    static const int CMD_REG_MASK = 0x70;
+    static const int DATA_MASK = 0x0F;
+    static const int CMD_REG_SHIFT = 4;
+    static const int FREQ_HIGH_SHIFT = 4;
+    static const int FREQ_HIGH_MASK = 0x3F;
+    static const int CMD_NOISE_CONFIG_MASK = 0x04;
+    static const int CMD_NOISE_CONFIG_SHIFT = 2;
+    static const int CMD_NOISE_FREQ_MASK = 0x03;
+
+    unsigned int tone_frequency[3];
+    unsigned int tone_attenuation[3];
+    unsigned int noise_config;
+    unsigned int noise_attenuation;
+    unsigned int noise_frequency;
+
+    void write(unsigned char data)
+    {
+        if(debug) printf("sound write 0x%02X\n", data);
+        if(data & CMD_BIT) {
+            cmd_latched = data;
+            unsigned int reg = (data & CMD_REG_MASK) >> CMD_REG_SHIFT;
+            if(reg == 1 || reg == 3 || reg == 5) {
+                tone_attenuation[(reg - 1) / 2] = data & DATA_MASK;
+            } else if(reg == 7) {
+                noise_attenuation = data & DATA_MASK;
+            } else if(reg == 6) {
+                noise_config = (data & CMD_NOISE_CONFIG_MASK) >> CMD_NOISE_CONFIG_SHIFT;
+                noise_frequency = data & CMD_NOISE_FREQ_MASK;
+            }
+        } else {
+            unsigned int reg = (cmd_latched & CMD_REG_MASK) >> CMD_REG_SHIFT;
+
+            if(reg == 0 || reg == 2 || reg == 4) {
+                tone_frequency[reg / 2] = ((data & FREQ_HIGH_MASK) << FREQ_HIGH_SHIFT) | (cmd_latched & DATA_MASK);
+            }
+        }
+    }
+
+    static const int sample_rate = 44100;
+    static const size_t audio_buffer_size = sample_rate / 100;
+    char audio_buffer[audio_buffer_size];
+    long long audio_buffer_start_sample = 0;
+    long long audio_buffer_next_sample = 0;
+    unsigned int noise_bit = 0;
+
+    unsigned char tone_value(unsigned int clock_rate, unsigned long long sample_44k, unsigned int freq, unsigned int att)
+    {
+        if((att == 0xF) || (freq == 0))
+            return 0;
+
+        unsigned long long length_44k = (freq * sample_rate + sample_rate / 2) * 16 / clock_rate;
+
+        if(length_44k < 1)
+            return 0;
+
+        int which_half = (sample_44k / length_44k) % 2;
+
+        unsigned char value = (which_half == 0) ? 0 : (64 / (1 + att));
+
+        return value;
+    }
+
+    unsigned char noise_value(unsigned int clock_rate, unsigned long long sample_44k, unsigned int config, unsigned int freq, unsigned int att)
+    {
+        if((att == 0xF) || (freq == 0))
+            return 0;
+
+        unsigned long long shift_44k = (freq * sample_rate + sample_rate / 2) / clock_rate;
+
+        if(shift_44k < 1)
+            return 0;
+
+        if(sample_44k % shift_44k == 0)
+            noise_bit = random() % 2;
+
+        unsigned char value = noise_bit ? 0 : (64 / (1 + att));
+
+        return value;
+    }
+
+    void generate_audio(unsigned long long clk, audio_flush_func audio_flush)
+    {
+        long long current_sample = clk * sample_rate / clock_rate;
+
+        for(long long i = audio_buffer_next_sample; i < current_sample; i++) {
+
+            unsigned char speaker_level = 0;
+
+            speaker_level += tone_value(clock_rate, i, tone_frequency[0], tone_attenuation[0]);
+            speaker_level += tone_value(clock_rate, i, tone_frequency[1], tone_attenuation[1]);
+            speaker_level += tone_value(clock_rate, i, tone_frequency[2], tone_attenuation[2]);
+
+            int shift_freq;
+            if(noise_frequency == 0)
+                shift_freq = 512;
+            else if(noise_frequency == 1)
+                shift_freq = 1024;
+            else if(noise_frequency == 2)
+                shift_freq = 2048;
+            else 
+                shift_freq = 32 * tone_frequency[2];
+            speaker_level += noise_value(clock_rate, i, noise_config, shift_freq, noise_attenuation);
+
+            audio_buffer[i % audio_buffer_size] = speaker_level;
+
+            if(i - audio_buffer_start_sample == audio_buffer_size - 1) {
+                audio_flush(audio_buffer, audio_buffer_size);
+
+                audio_buffer_start_sample = i + 1;
+            }
+        }
+        audio_buffer_next_sample = current_sample;
+    }
+
+};
 
 struct TMS9918A
 {
@@ -221,6 +359,7 @@ struct TMS9918A
                 (sprite_int ? VDP_STATUS_COINC_BIT : 0x0)
                 ;
             vdp_int = false;
+            sprite_int = false;
             return data;
         } else {
             unsigned char data = memory[read_address++];
@@ -272,7 +411,8 @@ struct TMS9918A
             // pattern_address = ((((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask) | pattern_row;
             pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) | pattern_row;
 
-            color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row) & address_mask; // XXX?
+            // color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row) & address_mask;
+            color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row);
 
             sprites_valid = true;
 
@@ -363,28 +503,27 @@ struct TMS9918A
         }
     }
 
-    void perform_scanout(unsigned char image[512 * 384 * 4])
+    void perform_scanout(unsigned char image[SCREEN_X * SCREEN_SCALE * SCREEN_Y * SCREEN_SCALE * 4])
     {
-        for(int row = 0; row < 192; row++) {
-            for(int col = 0; col < 256; col++) {
+        for(int row = 0; row < SCREEN_Y; row++) {
+            for(int col = 0; col < SCREEN_X; col++) {
                 unsigned char color[3];
                 get_color(col, row, color);
-                for(int j = 0; j < 2; j++) {
-                    for(int i = 0; i < 2; i++) {
-                        unsigned char *pixel = image + ((row * 2 + j) * 512 + col * 2 + i) * 4;
+                for(int j = 0; j < SCREEN_SCALE; j++) {
+                    for(int i = 0; i < SCREEN_SCALE; i++) {
+                        unsigned char *pixel = image + ((row * SCREEN_SCALE + j) * SCREEN_X * SCREEN_SCALE + col * SCREEN_SCALE + i) * 4;
                         for(int c = 0; c < 3; c++)
                             pixel[c] = color[c];
                     }
                 }
             }
         }
-        if(registers[1] & VR1_INT_MASK)
-            vdp_int = true;
+        vdp_int = true;
     }
 
     bool nmi_requested()
     {
-        return vdp_int;
+        return (registers[1] & VR1_INT_MASK) && vdp_int;
     }
 };
 
@@ -395,6 +534,7 @@ struct ColecoHW : board_base
     bool debug;
 
     TMS9918A vdp;
+    SN76489A sound;
 
     bool reading_joystick = true;
 
@@ -410,7 +550,8 @@ struct ColecoHW : board_base
     static const int CONTROLLER1_PORT = 0xFC;
     static const int CONTROLLER2_PORT = 0xFF;
 
-    ColecoHW()
+    ColecoHW() :
+        sound(machine_clock_rate)
     {
         debug = false;
         VDP = &vdp;
@@ -435,6 +576,7 @@ struct ColecoHW : board_base
 
         if(addr == ColecoHW::SN76489A_PORT) {
             if(debug) printf("audio write 0x%02X\n", data);
+            sound.write(data);
             return true;
         }
 
@@ -516,29 +658,10 @@ struct ColecoHW : board_base
         return vdp.nmi_requested();
     }
 
-#if 0
-    void fill_flush_audio()
+    void fill_flush_audio(unsigned long long clk, audio_flush_func audio_flush)
     {
-        long long current_sample = clk * sample_rate / machine_clock_rate;
-
-        for(long long i = audio_buffer_next_sample; i < current_sample; i++) {
-            if(where_in_waveform < waveform_length) {
-                unsigned char level = waveform[where_in_waveform++];
-                speaker_level = speaker_transitioning_to_high ? level : (255 - level);
-            }
-
-            audio_buffer[i % audio_buffer_size] = speaker_level;
-
-            if(i - audio_buffer_start_sample == audio_buffer_size - 1) {
-                audio_flush(audio_buffer, audio_buffer_size);
-
-                audio_buffer_start_sample = i + 1;
-            }
-        }
-        audio_buffer_next_sample = current_sample;
+        sound.generate_audio(clk, audio_flush);
     }
-#endif
-
 };
 
 struct RAMboard : board_base
@@ -1136,9 +1259,8 @@ bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
             return false;
         }
     }
-    unsigned long long total_cycles = 0;
     for(int i = 0; i < count; i++) {
-        total_cycles += Z80Emulate(state, 1);
+        clk += Z80Emulate(state, 1);
         if(i < count - 1) {
             if(verbose) {
                 print_state(state);
@@ -1148,7 +1270,7 @@ bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
         if(d->should_debug(boards, state))
             break;
     }
-    printf("%llu actual cycles emulated\n", total_cycles);
+    printf("%llu actual cycles emulated\n", clk);
     d->state_may_have_changed = true;
     d->last_was_step = true;
     return false;
@@ -1617,7 +1739,6 @@ int main(int argc, char **argv)
     char *bios_name = argv[0];
     char *cart_name = argv[1];
 
-
     fp = fopen(bios_name, "rb");
     if(fp == NULL) {
         fprintf(stderr, "failed to open %s for reading\n", bios_name);
@@ -1631,6 +1752,8 @@ int main(int argc, char **argv)
     fclose(fp);
     ROMboard *bios_rom = new ROMboard(0, bios_length, rom_temp);
 
+    audio_flush_func audio_flush;
+    audio_flush = [](char *buf, size_t sz){ ao_play(aodev, buf, sz); };
 
     fp = fopen(cart_name, "rb");
     if(fp == NULL) {
@@ -1646,7 +1769,6 @@ int main(int argc, char **argv)
     ROMboard *cart_rom = new ROMboard(0x8000, cart_length, rom_temp);
 
     ColecoHW* coleco = new ColecoHW();
-    // ao_play(aodev, buf, sz);
 
     boards.push_back(coleco);
     boards.push_back(bios_rom);
@@ -1655,7 +1777,7 @@ int main(int argc, char **argv)
 
     int rfbargc = 0;
     char **rfbargv = 0;
-    rfbScreenInfoPtr server = rfbGetScreen(&rfbargc,rfbargv,512,384,8,3,4);
+    rfbScreenInfoPtr server = rfbGetScreen(&rfbargc,rfbargv,SCREEN_X * SCREEN_SCALE,SCREEN_Y * SCREEN_SCALE,8,3,4);
     server->frameBuffer = (char *)framebuffer;
     server->kbdAddEvent = handleKey;
 
@@ -1677,10 +1799,10 @@ int main(int argc, char **argv)
 
     std::chrono::time_point<std::chrono::system_clock> then = std::chrono::system_clock::now();
 
-    unsigned long long total_cycles = 0;
+    unsigned long long clk = 0;
     while(!quit)
     {
-        int clocks_per_slice = millis_per_slice * machine_clock_rate / 1000 * 1.05;
+        int clocks_per_slice = millis_per_slice * machine_clock_rate / 1000;
 
         if(debugger && (enter_debugger || debugger->should_debug(boards, &state))) {
             debugger->go(stdin, boards, &state);
@@ -1695,17 +1817,17 @@ int main(int argc, char **argv)
                         enter_debugger = false;
                     }
                 } while(cycles < cycles_per_loop);
-                total_cycles += cycles;
+                clk += cycles;
             } else {
                 unsigned long long cycles = 0;
                 do {
                     cycles += Z80Emulate(&state, 1);
                 } while(cycles < cycles_per_loop);
-                total_cycles += cycles;
+                clk += cycles;
             }
 
             VDP->perform_scanout(framebuffer);
-            rfbMarkRectAsModified(server, 0, 0, 512, 384);
+            rfbMarkRectAsModified(server, 0, 0, SCREEN_X * SCREEN_SCALE, SCREEN_Y * SCREEN_SCALE);
             rfbProcessEvents(server, 1 /* 1000 */);
 
             std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
@@ -1728,7 +1850,7 @@ int main(int argc, char **argv)
                 // Pretend to be 8259 configured for Alice2:
                 Z80_INTERRUPT_FETCH = true;
                 Z80_INTERRUPT_FETCH_DATA = 0x3f00 + irq * 4;
-                total_cycles += Z80Interrupt(&state, 0xCD);
+                clk += Z80Interrupt(&state, 0xCD);
                 break;
             }
         }
@@ -1747,6 +1869,8 @@ int main(int argc, char **argv)
         gettimeofday(&tv, NULL);
         stop = tv.tv_sec + tv.tv_usec / 1000000.0;
         // printf("%f in board idle\n", (stop - start) * 1000000);
+
+        coleco->fill_flush_audio(clk, audio_flush);
     }
 
     return 0;
