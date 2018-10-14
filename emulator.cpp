@@ -94,7 +94,7 @@ typedef std::function<void (char *audiobuffer, size_t dist)> audio_flush_func;
 audio_flush_func audio_flush;
 
 unsigned int att_table[] = {
-    256, 203, 161, 128, 101, 80, 64, 51, 40, 32, 25, 20, 16, 12, 10, 8,
+    256, 203, 161, 128, 101, 80, 64, 51, 40, 32, 25, 20, 16, 12, 10, 0,
 };
 
 unsigned char scale_by_attenuation_flags(unsigned int att, unsigned char value)
@@ -125,14 +125,15 @@ struct SN76489A
 
     unsigned int noise_config;
     unsigned int noise_length;
-    unsigned int noise_counter;
+    unsigned int noise_length_id;
     unsigned int noise_attenuation;
 
     unsigned int tone_counters[3];
     unsigned int tone_bit[3];
-    unsigned int previous_noise_counter;
+    unsigned int noise_counter;
 
     uint16_t noise_register = 0x8000;
+    unsigned int noise_flipflop = 0;
 
     unsigned long long previous_clock;
 
@@ -143,7 +144,7 @@ struct SN76489A
             tone_counters[i] = 0;
             tone_bit[i] = 0;
         }
-        previous_noise_counter = 0;
+        noise_counter = 0;
         previous_clock = 0;
     }
 
@@ -162,7 +163,7 @@ struct SN76489A
                 noise_attenuation = data & DATA_MASK;
             } else if(reg == 6) {
                 noise_config = (data & CMD_NOISE_CONFIG_MASK) >> CMD_NOISE_CONFIG_SHIFT;
-                int noise_length_id = data & CMD_NOISE_FREQ_MASK;
+                noise_length_id = data & CMD_NOISE_FREQ_MASK;
                 if(noise_length_id == 0)
                     noise_length = 512;
                 else if(noise_length_id == 1)
@@ -186,37 +187,6 @@ struct SN76489A
         }
     }
 
-#if 0
-    unsigned char noise_value(unsigned int clock_rate, unsigned long long sample, unsigned int config, unsigned int freq, unsigned int att)
-    {
-        if((att == 0xF) || (freq == 0))
-            return 0;
-
-        unsigned long long shift = (freq * sample_rate + sample_rate / 2) / clock_rate;
-
-        if(shift < 1)
-            return 0;
-
-        int noise_bit = noise_register & 0x1;
-        if(sample % shift == 0) {
-            int new_bit;
-
-            if(config == 1)
-                new_bit = (noise_register & 0x1) ^ ((noise_register & 0x8) >> 3);
-            else
-                new_bit = noise_bit;
-
-            noise_register = (noise_register >> 1) | (new_bit << 15);
-        };
-
-        unsigned char value = noise_bit ? 0 : 64;
-
-        value = scale_by_attenuation_flags(att, value);
-
-        return value;
-    }
-#endif
-
     unsigned long long calc_flip_count(unsigned long long previous_clock, unsigned long long current_clock, unsigned int previous_counter, unsigned int length)
     {
         if(length < 1)
@@ -226,8 +196,23 @@ struct SN76489A
         return flips;
     }
 
-    void advance_noise_to_clock(unsigned long long clk)
+    void advance_noise_to_clock(unsigned long long flips)
     {
+        for(int i = 0; i < flips; i++) {
+            noise_flipflop ^= 1;
+
+            if(noise_flipflop) {
+                int noise_bit = noise_register & 0x1;
+                int new_bit;
+
+                if(noise_config == 1)
+                    new_bit = (noise_register & 0x1) ^ ((noise_register & 0x8) >> 3);
+                else
+                    new_bit = noise_bit;
+
+                noise_register = (noise_register >> 1) | (new_bit << 15);
+            }
+        }
     }
 
     void advance_to_clock(unsigned long long clk)
@@ -236,19 +221,17 @@ struct SN76489A
         
         for(int i = 0; i < 3; i++) {
             tone_flips[i] = calc_flip_count(previous_clock, clk, tone_counters[i], tone_lengths[i]);
-            tone_bit[i] = tone_bit[i] ^ (tone_flips[i] & 0x1);
         }
 
-#if 0
         int flips;
-        if(noise_length_identifier == 3)
-            flips = calc_flip_count(previous_clock, clk, tone_counters[2], tone_lengths[2]);
+        if(noise_length_id == 3)
+            flips = tone_flips[2];
         else
             flips = calc_flip_count(previous_clock, clk, noise_counter, noise_length);
         advance_noise_to_clock(flips);
 
-#endif
         for(int i = 0; i < 3; i++) {
+            tone_bit[i] = tone_bit[i] ^ (tone_flips[i] & 0x1);
             if(tone_lengths[i] > 0)
                 tone_counters[i] = (tone_counters[i] + (clk - previous_clock)) % tone_lengths[i];
         }
@@ -264,7 +247,7 @@ struct SN76489A
             scale_by_attenuation_flags(tone_attenuation[0], tone_bit[0] ? 0 : 64) + 
             + scale_by_attenuation_flags(tone_attenuation[1], tone_bit[1] ? 0 : 64)
             + scale_by_attenuation_flags(tone_attenuation[2], tone_bit[2] ? 0 : 64)
-            // + scale_by_attenuation_flags((noise_register & 0x1) ? 0 : 64, noise_attenuation[2])
+            + scale_by_attenuation_flags(noise_attenuation, (noise_register & 0x1) ? 0 : 64);
             ;
 
         return v;
