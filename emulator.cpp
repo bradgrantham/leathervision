@@ -34,9 +34,9 @@ unsigned long user_flags = 0;
 bool Z80_INTERRUPT_FETCH = false;
 unsigned short Z80_INTERRUPT_FETCH_DATA;
 
-const int machine_clock_rate = 3579545;
+const long long machine_clock_rate = 3579545;
 unsigned long long clk = 0;
-int millis_per_slice = 16;
+long long micros_per_slice = 16666;
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
@@ -1598,7 +1598,18 @@ const int CONTROLLER1_EAST_BIT = 0x02; // 0x04;
 const int CONTROLLER1_SOUTH_BIT = 0x04; // 0x02;
 const int CONTROLLER1_WEST_BIT = 0x08; // 0x01;
 const int CONTROLLER1_KEYPAD_MASK = 0xFF00;
+const int CONTROLLER1_KEYPAD_0 = 0x0500;
 const int CONTROLLER1_KEYPAD_1 = 0x0200;
+const int CONTROLLER1_KEYPAD_2 = 0x0800;
+const int CONTROLLER1_KEYPAD_3 = 0x0300;
+const int CONTROLLER1_KEYPAD_4 = 0x0D00;
+const int CONTROLLER1_KEYPAD_5 = 0x0C00;
+const int CONTROLLER1_KEYPAD_6 = 0x0100;
+const int CONTROLLER1_KEYPAD_7 = 0x0A00;
+const int CONTROLLER1_KEYPAD_8 = 0x0E00;
+const int CONTROLLER1_KEYPAD_9 = 0x0400;
+const int CONTROLLER1_KEYPAD_asterisk = 0x0900;
+const int CONTROLLER1_KEYPAD_pound = 0x0600;
 
 static void handleKey(rfbBool down, rfbKeySym key, rfbClientPtr cl)
 {
@@ -1631,8 +1642,41 @@ static void handleKey(rfbBool down, rfbKeySym key, rfbClientPtr cl)
                 case XK_space:
                     user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT) | CONTROLLER1_FIRE_BIT;
                     break;
+                case XK_0:
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_0;
+                    break;
                 case XK_1:
                     user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_1;
+                    break;
+                case XK_2:
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_2;
+                    break;
+                case XK_3:
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_3;
+                    break;
+                case XK_4:
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_4;
+                    break;
+                case XK_5:
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_5;
+                    break;
+                case XK_6:
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_6;
+                    break;
+                case XK_7:
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_7;
+                    break;
+                case XK_8:
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_8;
+                    break;
+                case XK_9:
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_9;
+                    break;
+                case XK_asterisk:
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_asterisk;
+                    break;
+                case XK_numbersign:
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_pound;
                     break;
             }
         }
@@ -1653,7 +1697,40 @@ static void handleKey(rfbBool down, rfbKeySym key, rfbClientPtr cl)
             case XK_space:
                 user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT);
                 break;
+            case XK_0:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
             case XK_1:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case XK_2:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case XK_3:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case XK_4:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case XK_5:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case XK_6:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case XK_7:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case XK_8:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case XK_9:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case XK_asterisk:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case XK_numbersign:
                 user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
                 break;
         }
@@ -1688,8 +1765,6 @@ ao_device *open_ao()
 
 int main(int argc, char **argv)
 {
-    const int cycles_per_loop = 50000;
-
     Debugger *debugger = NULL;
     char *debugger_argument = NULL;
 
@@ -1802,7 +1877,7 @@ int main(int argc, char **argv)
     unsigned long long clk = 0;
     while(!quit)
     {
-        int clocks_per_slice = millis_per_slice * machine_clock_rate / 1000;
+        long long clocks_per_slice = micros_per_slice * machine_clock_rate / 1000000;
 
         if(debugger && (enter_debugger || debugger->should_debug(boards, &state))) {
             debugger->go(stdin, boards, &state);
@@ -1816,13 +1891,13 @@ int main(int argc, char **argv)
                         debugger->go(stdin, boards, &state);
                         enter_debugger = false;
                     }
-                } while(cycles < cycles_per_loop);
+                } while(cycles < clocks_per_slice);
                 clk += cycles;
             } else {
                 unsigned long long cycles = 0;
                 do {
-                    cycles += Z80Emulate(&state, 1);
-                } while(cycles < cycles_per_loop);
+                    cycles += Z80Emulate(&state, 4);
+                } while(cycles < clocks_per_slice);
                 clk += cycles;
             }
 
@@ -1832,9 +1907,11 @@ int main(int argc, char **argv)
 
             std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
 
-            auto elapsed_millis = std::chrono::duration_cast<std::chrono::milliseconds>(now - then);
-            if(!run_fast || pause_cpu)
-                std::this_thread::sleep_for(std::chrono::milliseconds(clocks_per_slice * 1000 / machine_clock_rate) - elapsed_millis);
+            auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
+            if(!run_fast || pause_cpu) {
+                std::this_thread::sleep_for(std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate) - elapsed_micros);
+                // printf("%f%%\n", 100.0 - elapsed_micros.count() * 100.0 / std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate).count());
+            }
 
             then = now;
         }
