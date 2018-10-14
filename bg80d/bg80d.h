@@ -1879,7 +1879,8 @@ opcode_spec_t * decode(__uint8_t (*reader)(void *), void * ctx, int PC)
                 sprintf(buffer, " ($%.4X)", PC + bytes_read + (char)opcode.parameter1);
                 sprintf(opcode.description, opcode_bank[z80byte].description, (char)opcode.parameter1, buffer);
             } else {
-                sprintf(opcode.description, opcode_bank[z80byte].description, (char)opcode.parameter1);
+                sprintf(buffer, " ($%.4X)", PC + bytes_read + (char)opcode.parameter1);
+                sprintf(opcode.description, opcode_bank[z80byte].description, (char)opcode.parameter1, buffer);
             }
             break;
         case Z80_EXTRA_T_NN:
