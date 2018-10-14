@@ -8,6 +8,8 @@
 
 #ifndef __Z80_INCLUDED__
 
+#include <stdio.h>
+
 // #ifdef __cplusplus
 // extern "C" {
 // #endif
