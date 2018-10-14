@@ -139,7 +139,6 @@ struct SN76489A
 
             cmd_latched = data;
 
-    uint16_t noise_register = 0x8000;
             unsigned int reg = (data & CMD_REG_MASK) >> CMD_REG_SHIFT;
 
             if(reg == 1 || reg == 3 || reg == 5) {
