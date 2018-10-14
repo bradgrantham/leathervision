@@ -3,7 +3,7 @@
 BG80D_PATH=bg80d
 USE_BG80D=1
 
-OPT=-g -O
+OPT=-g -O3
 LDFLAGS=-L/opt/local/lib
 LDLIBS=-lvncserver -lreadline -lao
 # LDLIBS=-lreadline
