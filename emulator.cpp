@@ -130,6 +130,7 @@ struct SN76489A
     unsigned int noise_config;
     unsigned int noise_attenuation;
     unsigned int noise_frequency;
+    uint16_t noise_register = 0x8000;
 
     void write(unsigned char data)
     {
@@ -138,6 +139,7 @@ struct SN76489A
 
             cmd_latched = data;
 
+    uint16_t noise_register = 0x8000;
             unsigned int reg = (data & CMD_REG_MASK) >> CMD_REG_SHIFT;
 
             if(reg == 1 || reg == 3 || reg == 5) {
@@ -147,6 +149,8 @@ struct SN76489A
             } else if(reg == 6) {
                 noise_config = (data & CMD_NOISE_CONFIG_MASK) >> CMD_NOISE_CONFIG_SHIFT;
                 noise_frequency = data & CMD_NOISE_FREQ_MASK;
+
+                noise_register = 0x8000;
             }
 
         } else {
@@ -164,7 +168,6 @@ struct SN76489A
     char audio_buffer[audio_buffer_size];
     long long audio_buffer_start_sample = 0;
     long long audio_buffer_next_sample = 0;
-    unsigned int noise_bit = 0;
 
     unsigned char tone_value(unsigned int clock_rate, unsigned long long sample, unsigned int freq, unsigned int att)
     {
@@ -195,8 +198,17 @@ struct SN76489A
         if(shift < 1)
             return 0;
 
-        if(sample % shift == 0)
-            noise_bit = random() % 2;
+        int noise_bit = noise_register & 0x1;
+        if(sample % shift == 0) {
+            int new_bit;
+
+            if(config == 1)
+                new_bit = (noise_register & 0x1) ^ ((noise_register & 0x8) >> 3);
+            else
+                new_bit = noise_bit;
+
+            noise_register = (noise_register >> 1) | (new_bit << 15);
+        };
 
         unsigned char value = noise_bit ? 0 : 64;
 
