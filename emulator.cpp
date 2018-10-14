@@ -93,6 +93,15 @@ void nybble_to_color(unsigned int nybble, unsigned char color[3])
 typedef std::function<void (char *audiobuffer, size_t dist)> audio_flush_func;
 audio_flush_func audio_flush;
 
+unsigned int att_table[] = {
+    256, 203, 161, 128, 101, 80, 64, 51, 40, 32, 25, 20, 16, 12, 10, 8,
+};
+
+unsigned char scale_by_attenuation_flags(unsigned int att, unsigned char value)
+{
+    return int(value) * att_table[att] / 256;
+}
+
 struct SN76489A
 {
     bool debug = false;
@@ -126,8 +135,11 @@ struct SN76489A
     {
         if(debug) printf("sound write 0x%02X\n", data);
         if(data & CMD_BIT) {
+
             cmd_latched = data;
+
             unsigned int reg = (data & CMD_REG_MASK) >> CMD_REG_SHIFT;
+
             if(reg == 1 || reg == 3 || reg == 5) {
                 tone_attenuation[(reg - 1) / 2] = data & DATA_MASK;
             } else if(reg == 7) {
@@ -136,7 +148,9 @@ struct SN76489A
                 noise_config = (data & CMD_NOISE_CONFIG_MASK) >> CMD_NOISE_CONFIG_SHIFT;
                 noise_frequency = data & CMD_NOISE_FREQ_MASK;
             }
+
         } else {
+
             unsigned int reg = (cmd_latched & CMD_REG_MASK) >> CMD_REG_SHIFT;
 
             if(reg == 0 || reg == 2 || reg == 4) {
@@ -152,37 +166,41 @@ struct SN76489A
     long long audio_buffer_next_sample = 0;
     unsigned int noise_bit = 0;
 
-    unsigned char tone_value(unsigned int clock_rate, unsigned long long sample_44k, unsigned int freq, unsigned int att)
+    unsigned char tone_value(unsigned int clock_rate, unsigned long long sample, unsigned int freq, unsigned int att)
     {
         if((att == 0xF) || (freq == 0))
             return 0;
 
-        unsigned long long length_44k = (freq * sample_rate + sample_rate / 2) * 16 / clock_rate;
+        unsigned long long length = (freq * sample_rate + sample_rate / 2) * 16 / clock_rate;
 
-        if(length_44k < 1)
+        if(length < 1)
             return 0;
 
-        int which_half = (sample_44k / length_44k) % 2;
+        int which_half = (sample / length) % 2;
 
-        unsigned char value = (which_half == 0) ? 0 : (64 / (1 + att));
+        unsigned char value = (which_half == 0) ? 0 : 64;
+
+        value = scale_by_attenuation_flags(att, value);
 
         return value;
     }
 
-    unsigned char noise_value(unsigned int clock_rate, unsigned long long sample_44k, unsigned int config, unsigned int freq, unsigned int att)
+    unsigned char noise_value(unsigned int clock_rate, unsigned long long sample, unsigned int config, unsigned int freq, unsigned int att)
     {
         if((att == 0xF) || (freq == 0))
             return 0;
 
-        unsigned long long shift_44k = (freq * sample_rate + sample_rate / 2) / clock_rate;
+        unsigned long long shift = (freq * sample_rate + sample_rate / 2) / clock_rate;
 
-        if(shift_44k < 1)
+        if(shift < 1)
             return 0;
 
-        if(sample_44k % shift_44k == 0)
+        if(sample % shift == 0)
             noise_bit = random() % 2;
 
-        unsigned char value = noise_bit ? 0 : (64 / (1 + att));
+        unsigned char value = noise_bit ? 0 : 64;
+
+        value = scale_by_attenuation_flags(att, value);
 
         return value;
     }
