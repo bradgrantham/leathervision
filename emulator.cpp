@@ -1224,6 +1224,18 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     write_image(framebuffer, fp);
     fclose(fp);
 
+    fp = fopen("vdp_memory.txt", "w");
+    fprintf(fp, "%02X %02X %02X %02X %02X %02X %02X %02X\n",
+        VDP->registers[0], VDP->registers[1], VDP->registers[2], VDP->registers[3],
+        VDP->registers[4], VDP->registers[5], VDP->registers[6], VDP->registers[7]);
+    for(int j = 0; j < 64; j++) {
+        for(int i = 0; i < 256; i++) {
+            fprintf(fp, "%02X ", VDP->memory[j * 256 + i]);
+        }
+        fprintf(fp, "\n");
+    }
+    fclose(fp);
+
     return false;
 }
 
