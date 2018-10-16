@@ -56,14 +56,14 @@ const int SCREEN_X = 256;
 const int SCREEN_Y = 192;
 const int SCREEN_SCALE = 3;
 
-unsigned char framebuffer[SCREEN_X * SCREEN_SCALE * SCREEN_Y * SCREEN_SCALE * 4];
+unsigned char framebuffer[SCREEN_X * SCREEN_Y * 4];
 
-void write_image(unsigned char image[SCREEN_X * SCREEN_SCALE * SCREEN_Y * SCREEN_SCALE * 4], FILE *fp)
+void write_image(unsigned char image[SCREEN_X * SCREEN_Y * 4], FILE *fp)
 {
-    fprintf(fp, "P6 %d %d 255\n", SCREEN_X * SCREEN_SCALE, SCREEN_Y * SCREEN_SCALE);
-    for(int row = 0; row < SCREEN_Y * SCREEN_SCALE; row++) {
-        for(int col = 0; col < SCREEN_X * SCREEN_SCALE; col++) {
-            fwrite(image + (row * SCREEN_X * SCREEN_SCALE + col) * 4, 3, 1, fp);
+    fprintf(fp, "P6 %d %d 255\n", SCREEN_X, SCREEN_Y);
+    for(int row = 0; row < SCREEN_Y; row++) {
+        for(int col = 0; col < SCREEN_X; col++) {
+            fwrite(image + (row * SCREEN_X + col) * 4, 3, 1, fp);
         }
     }
 }
@@ -567,19 +567,15 @@ struct TMS9918A
         }
     }
 
-    void perform_scanout(unsigned char image[SCREEN_X * SCREEN_SCALE * SCREEN_Y * SCREEN_SCALE * 4])
+    void perform_scanout(unsigned char image[SCREEN_X * SCREEN_Y * 4])
     {
         for(int row = 0; row < SCREEN_Y; row++) {
             for(int col = 0; col < SCREEN_X; col++) {
                 unsigned char color[3];
                 get_color(col, row, color);
-                for(int j = 0; j < SCREEN_SCALE; j++) {
-                    for(int i = 0; i < SCREEN_SCALE; i++) {
-                        unsigned char *pixel = image + ((row * SCREEN_SCALE + j) * SCREEN_X * SCREEN_SCALE + col * SCREEN_SCALE + i) * 4;
-                        for(int c = 0; c < 3; c++)
-                            pixel[c] = color[c];
-                    }
-                }
+                unsigned char *pixel = image + (row * SCREEN_X + col) * 4;
+                for(int c = 0; c < 3; c++)
+                    pixel[c] = color[c];
             }
         }
         vdp_int = true;
@@ -1675,134 +1671,6 @@ const int CONTROLLER1_KEYPAD_9 = 0x0400;
 const int CONTROLLER1_KEYPAD_asterisk = 0x0900;
 const int CONTROLLER1_KEYPAD_pound = 0x0600;
 
-#if 0
-static void handleKey(rfbBool down, rfbKeySym key, rfbClientPtr cl)
-{
-    if(down) {
-        if(key==XK_Escape) {
-            rfbCloseClient(cl);
-            quit = true;
-        } else if(key==XK_F12) {
-            /* close down server, disconnecting clients */
-            rfbShutdownServer(cl->screen,TRUE);
-            quit = true;
-        } else if(key==XK_F11) {
-            /* close down server, but wait for all clients to disconnect */
-            rfbShutdownServer(cl->screen,FALSE);
-            quit = true;
-        } else {
-            switch(key) {
-                case XK_w:
-                    user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT) | CONTROLLER1_NORTH_BIT;
-                    break;
-                case XK_a:
-                    user_flags = (user_flags & ~CONTROLLER1_WEST_BIT) | CONTROLLER1_WEST_BIT;
-                    break;
-                case XK_s:
-                    user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT) | CONTROLLER1_SOUTH_BIT;
-                    break;
-                case XK_d:
-                    user_flags = (user_flags & ~CONTROLLER1_EAST_BIT) | CONTROLLER1_EAST_BIT;
-                    break;
-                case XK_space:
-                    user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT) | CONTROLLER1_FIRE_BIT;
-                    break;
-                case XK_0:
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_0;
-                    break;
-                case XK_1:
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_1;
-                    break;
-                case XK_2:
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_2;
-                    break;
-                case XK_3:
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_3;
-                    break;
-                case XK_4:
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_4;
-                    break;
-                case XK_5:
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_5;
-                    break;
-                case XK_6:
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_6;
-                    break;
-                case XK_7:
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_7;
-                    break;
-                case XK_8:
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_8;
-                    break;
-                case XK_9:
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_9;
-                    break;
-                case XK_asterisk:
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_asterisk;
-                    break;
-                case XK_numbersign:
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_pound;
-                    break;
-            }
-        }
-    } else {
-        switch(key) {
-            case XK_w:
-                user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT);
-                break;
-            case XK_a:
-                user_flags = (user_flags & ~CONTROLLER1_WEST_BIT);
-                break;
-            case XK_s:
-                user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT);
-                break;
-            case XK_d:
-                user_flags = (user_flags & ~CONTROLLER1_EAST_BIT);
-                break;
-            case XK_space:
-                user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT);
-                break;
-            case XK_0:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-            case XK_1:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-            case XK_2:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-            case XK_3:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-            case XK_4:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-            case XK_5:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-            case XK_6:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-            case XK_7:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-            case XK_8:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-            case XK_9:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-            case XK_asterisk:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-            case XK_numbersign:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-        }
-    }
-}
-#endif
-
 ao_device *open_ao()
 {
     ao_device *device;
@@ -1829,6 +1697,15 @@ ao_device *open_ao()
 }
 
 static GLFWwindow* my_window;
+
+GLuint image_program;
+GLuint image_texture_location;
+GLuint image_texture_coord_scale_location;
+GLuint image_to_screen_location;
+GLuint image_x_offset_location;
+GLuint image_y_offset_location;
+
+const int raster_coords_attrib = 0;
 
 bool use_joystick = false;
 int joystick_axis0 = 0;
@@ -1860,6 +1737,38 @@ void make_to_screen_transform()
     to_screen_transform[2 * 3 + 2] = 1;
 }
 
+opengl_texture screen_image;
+vertex_array screen_image_rectangle;
+
+static const char *hires_vertex_shader = "\n\
+    uniform mat3 to_screen;\n\
+    in vec2 vertex_coords;\n\
+    out vec2 raster_coords;\n\
+    uniform float x_offset;\n\
+    uniform float y_offset;\n\
+    \n\
+    void main()\n\
+    {\n\
+        raster_coords = vertex_coords;\n\
+        vec3 screen_coords = to_screen * vec3(vertex_coords + vec2(x_offset, y_offset), 1);\n\
+        gl_Position = vec4(screen_coords.x, screen_coords.y, .5, 1);\n\
+    }\n";
+
+static const char *image_fragment_shader = "\n\
+    in vec2 raster_coords;\n\
+    uniform vec2 image_coord_scale;\n\
+    uniform sampler2D image;\n\
+    \n\
+    out vec4 color;\n\
+    \n\
+    void main()\n\
+    {\n\
+        ivec2 tc = ivec2(raster_coords.x, raster_coords.y);\n\
+        vec3 pixel = texture(image, raster_coords * image_coord_scale).xyz;\n\
+        color = vec4(pixel, 1);\n\
+    }\n";
+
+
 void initialize_gl(void)
 {
 #if defined(__linux__)
@@ -1873,8 +1782,6 @@ void initialize_gl(void)
     glGenVertexArrays(1, &va);
     glBindVertexArray(va);
 
-#if 0
-// TODO
     image_program = GenerateProgram("image", hires_vertex_shader, image_fragment_shader);
     assert(image_program != 0);
     glBindAttribLocation(image_program, raster_coords_attrib, "vertex_coords");
@@ -1885,10 +1792,24 @@ void initialize_gl(void)
     image_to_screen_location = glGetUniformLocation(image_program, "to_screen");
     image_x_offset_location = glGetUniformLocation(image_program, "x_offset");
     image_y_offset_location = glGetUniformLocation(image_program, "y_offset");
-#endif
 
     // initialize_screen_areas();
     CheckOpenGL(__FILE__, __LINE__);
+
+    screen_image = initialize_texture(SCREEN_X, SCREEN_Y, NULL);
+    screen_image_rectangle.push_back({make_rectangle_array_buffer(0, 0, SCREEN_X, SCREEN_X), raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0});
+}
+
+void set_image_shader(float to_screen[9], const opengl_texture& texture, float x, float y)
+{
+    glUseProgram(image_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glUniform2f(image_texture_coord_scale_location, 1.0 / texture.w, 1.0 / texture.h);
+    glUniform1i(image_texture_location, 0);
+    glUniformMatrix3fv(image_to_screen_location, 1, GL_FALSE, to_screen);
+    glUniform1f(image_x_offset_location, x);
+    glUniform1f(image_y_offset_location, y);
 }
 
 static void redraw(GLFWwindow *window)
@@ -1898,8 +1819,13 @@ static void redraw(GLFWwindow *window)
     glViewport(0, 0, fbw, fbh);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // upload texture
-    // draw quad
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, screen_image);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SCREEN_X, SCREEN_Y, 0, GL_RGBA, GL_UNSIGNED_BYTE, framebuffer);
+    set_image_shader(to_screen_transform, screen_image, 0, 0);
+
+    screen_image_rectangle.bind();
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
     CheckOpenGL(__FILE__, __LINE__);
 }
@@ -1909,12 +1835,122 @@ static void error_callback(int error, const char* description)
     fprintf(stderr, "GLFW: %s\n", description);
 }
 
+
+
 static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
     if(action == GLFW_PRESS || action == GLFW_REPEAT ) {
-        // TODO: enqueue key press
+        switch(key) {
+            case GLFW_KEY_W:
+                user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT) | CONTROLLER1_NORTH_BIT;
+                break;
+            case GLFW_KEY_A:
+                user_flags = (user_flags & ~CONTROLLER1_WEST_BIT) | CONTROLLER1_WEST_BIT;
+                break;
+            case GLFW_KEY_S:
+                user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT) | CONTROLLER1_SOUTH_BIT;
+                break;
+            case GLFW_KEY_D:
+                user_flags = (user_flags & ~CONTROLLER1_EAST_BIT) | CONTROLLER1_EAST_BIT;
+                break;
+            case GLFW_KEY_SPACE:
+                user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT) | CONTROLLER1_FIRE_BIT;
+                break;
+            case GLFW_KEY_0:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_0;
+                break;
+            case GLFW_KEY_1:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_1;
+                break;
+            case GLFW_KEY_2:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_2;
+                break;
+            case GLFW_KEY_3:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_3;
+                break;
+            case GLFW_KEY_4:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_4;
+                break;
+            case GLFW_KEY_5:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_5;
+                break;
+            case GLFW_KEY_6:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_6;
+                break;
+            case GLFW_KEY_7:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_7;
+                break;
+            case GLFW_KEY_8:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_8;
+                break;
+            case GLFW_KEY_9:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_9;
+                break;
+                /* 
+                TODO these are shift
+            case GLFW_KEY_asterisk:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_asterisk;
+                break;
+            case GLFW_KEY_numbersign:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_pound;
+                break; */
+        }
     } else if(action == GLFW_RELEASE) {
-        // TODO: enqueue key release
+        switch(key) {
+            case GLFW_KEY_W:
+                user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT);
+                break;
+            case GLFW_KEY_A:
+                user_flags = (user_flags & ~CONTROLLER1_WEST_BIT);
+                break;
+            case GLFW_KEY_S:
+                user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT);
+                break;
+            case GLFW_KEY_D:
+                user_flags = (user_flags & ~CONTROLLER1_EAST_BIT);
+                break;
+            case GLFW_KEY_SPACE:
+                user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT);
+                break;
+            case GLFW_KEY_0:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case GLFW_KEY_1:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case GLFW_KEY_2:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case GLFW_KEY_3:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case GLFW_KEY_4:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case GLFW_KEY_5:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case GLFW_KEY_6:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case GLFW_KEY_7:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case GLFW_KEY_8:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case GLFW_KEY_9:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+                /* TODO these are shift 
+            case GLFW_KEY_asterisk:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+            case GLFW_KEY_numbersign:
+                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                break;
+                */
+        }
     }
 }
 
@@ -2004,6 +2040,8 @@ void iterate_ui()
         quit = true;
         return;
     }
+
+    VDP->perform_scanout(framebuffer);
 
     CheckOpenGL(__FILE__, __LINE__);
     redraw(my_window);
@@ -2232,8 +2270,6 @@ int main(int argc, char **argv)
                 clk += cycles;
             }
 
-            VDP->perform_scanout(framebuffer);
-
             std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
 
             auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
@@ -2278,6 +2314,7 @@ int main(int argc, char **argv)
 
         coleco->fill_flush_audio(clk, audio_flush);
         iterate_ui();
+
     }
 
     shutdown_ui();
