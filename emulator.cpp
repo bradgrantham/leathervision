@@ -2026,7 +2026,7 @@ void load_joystick_setup()
         fprintf(stderr,"e.g. \"1 21 23 22 24\" for Samsung EI-GP20\n");
         return;
     }
-    if(fscanf(fp, "%d %d %d %d %d", &joystick_button_north, &joystick_button_south, &joystick_button_east, &joystick_button_west, &joystick_button_fire) != 4) {
+    if(fscanf(fp, "%d %d %d %d %d", &joystick_button_north, &joystick_button_south, &joystick_button_east, &joystick_button_west, &joystick_button_fire) != 5) {
         fprintf(stderr,"couldn't parse joystick.ini\n");
         fprintf(stderr,"store GLFW joystick buttons for N, S, E, W, Fire in joystick.ini\n");
         fprintf(stderr,"e.g. \"1 21 23 22 24\" for Samsung EI-GP20\n");
