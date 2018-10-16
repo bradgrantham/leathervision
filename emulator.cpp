@@ -1922,6 +1922,7 @@ int main(int argc, char **argv)
     }
 
     Z80_STATE state;
+    memset(&state, 0, sizeof(state));
 
     Z80Reset(&state);
 
