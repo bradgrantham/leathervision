@@ -5,8 +5,7 @@ USE_BG80D=1
 
 OPT=-g -O3
 LDFLAGS=-L/opt/local/lib
-LDLIBS=-lvncserver -lreadline -lao
-# LDLIBS=-lreadline
+LDLIBS=-lreadline -lao -lglfw -framework OpenGL -framework Cocoa -framework IOkit
 CXXFLAGS=-Wall -I/opt/local/include -I$(BG80D_PATH) -DUSE_BG80D=$(USE_BG80D) -std=c++11 $(OPT)
 
 VPATH=$(BG80D_PATH)
@@ -14,7 +13,7 @@ VPATH=$(BG80D_PATH)
 all: emulator
 # hex2bin hexinfo
 
-emulator: emulator.o z80emu.o readhex.o
+emulator: emulator.o z80emu.o readhex.o gl_utility.o
 	$(CXX) $(LDFLAGS) $^   -o $@ $(LDLIBS)
 
 hexinfo: hexinfo.o readhex.o

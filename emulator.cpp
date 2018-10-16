@@ -17,15 +17,21 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 
-#include <rfb/rfb.h>
-#include <rfb/keysym.h>
-
 #include <ao/ao.h>
 
 #include "emulator.h"
 
 #include "z80emu.h"
 #include "readhex.h"
+
+#if defined(__linux__)
+#include <GL/glew.h>
+#endif // defined(__linux__)
+
+#define GLFW_INCLUDE_GLCOREARB
+#include <GLFW/glfw3.h>
+
+#include "gl_utility.h"
 
 const bool debug = false;
 
@@ -1669,6 +1675,7 @@ const int CONTROLLER1_KEYPAD_9 = 0x0400;
 const int CONTROLLER1_KEYPAD_asterisk = 0x0900;
 const int CONTROLLER1_KEYPAD_pound = 0x0600;
 
+#if 0
 static void handleKey(rfbBool down, rfbKeySym key, rfbClientPtr cl)
 {
     if(down) {
@@ -1794,6 +1801,7 @@ static void handleKey(rfbBool down, rfbKeySym key, rfbClientPtr cl)
         }
     }
 }
+#endif
 
 ao_device *open_ao()
 {
@@ -1820,6 +1828,277 @@ ao_device *open_ao()
     return device;
 }
 
+static GLFWwindow* my_window;
+
+bool use_joystick = false;
+int joystick_axis0 = 0;
+int joystick_axis1 = 1;
+int joystick_button0 = 0;
+int joystick_button1 = 1;
+
+static int gWindowWidth, gWindowHeight;
+
+// to handle https://github.com/glfw/glfw/issues/161
+static double gMotionReported = false;
+
+static double gOldMouseX, gOldMouseY;
+static int gButtonPressed = -1;
+
+float pixel_to_ui_scale;
+float to_screen_transform[9];
+
+void make_to_screen_transform()
+{
+    to_screen_transform[0 * 3 + 0] = 2.0 / gWindowWidth * pixel_to_ui_scale;
+    to_screen_transform[0 * 3 + 1] = 0;
+    to_screen_transform[0 * 3 + 2] = 0;
+    to_screen_transform[1 * 3 + 0] = 0;
+    to_screen_transform[1 * 3 + 1] = -2.0 / gWindowHeight * pixel_to_ui_scale;
+    to_screen_transform[1 * 3 + 2] = 0;
+    to_screen_transform[2 * 3 + 0] = -1;
+    to_screen_transform[2 * 3 + 1] = 1;
+    to_screen_transform[2 * 3 + 2] = 1;
+}
+
+void initialize_gl(void)
+{
+#if defined(__linux__)
+    glewInit();
+#endif // defined(__linux__)
+
+    glClearColor(0, 0, 0, 1);
+    CheckOpenGL(__FILE__, __LINE__);
+
+    GLuint va;
+    glGenVertexArrays(1, &va);
+    glBindVertexArray(va);
+
+#if 0
+// TODO
+    image_program = GenerateProgram("image", hires_vertex_shader, image_fragment_shader);
+    assert(image_program != 0);
+    glBindAttribLocation(image_program, raster_coords_attrib, "vertex_coords");
+    CheckOpenGL(__FILE__, __LINE__);
+
+    image_texture_location = glGetUniformLocation(image_program, "image");
+    image_texture_coord_scale_location = glGetUniformLocation(image_program, "image_coord_scale");
+    image_to_screen_location = glGetUniformLocation(image_program, "to_screen");
+    image_x_offset_location = glGetUniformLocation(image_program, "x_offset");
+    image_y_offset_location = glGetUniformLocation(image_program, "y_offset");
+#endif
+
+    // initialize_screen_areas();
+    CheckOpenGL(__FILE__, __LINE__);
+}
+
+static void redraw(GLFWwindow *window)
+{
+    int fbw, fbh;
+    glfwGetFramebufferSize(window, &fbw, &fbh);
+    glViewport(0, 0, fbw, fbh);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // upload texture
+    // draw quad
+
+    CheckOpenGL(__FILE__, __LINE__);
+}
+
+static void error_callback(int error, const char* description)
+{
+    fprintf(stderr, "GLFW: %s\n", description);
+}
+
+static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
+{
+    if(action == GLFW_PRESS || action == GLFW_REPEAT ) {
+        // TODO: enqueue key press
+    } else if(action == GLFW_RELEASE) {
+        // TODO: enqueue key release
+    }
+}
+
+static void resize_based_on_window(GLFWwindow *window)
+{
+    glfwGetWindowSize(window, &gWindowWidth, &gWindowHeight);
+    float cw = 256, ch = 192;
+    if(float(gWindowHeight) / gWindowWidth < ch / cw) {
+        pixel_to_ui_scale = gWindowHeight / ch;
+    } else {
+        pixel_to_ui_scale = gWindowWidth / cw;
+    }
+    make_to_screen_transform();
+}
+
+static void resize(GLFWwindow *window, int x, int y)
+{
+    resize_based_on_window(window);
+    int fbw, fbh;
+    glfwGetFramebufferSize(window, &fbw, &fbh);
+    glViewport(0, 0, fbw, fbh);
+}
+
+static void button(GLFWwindow *window, int b, int action, int mods)
+{
+    double x, y;
+    glfwGetCursorPos(window, &x, &y);
+
+    if(b == GLFW_MOUSE_BUTTON_1 && action == GLFW_PRESS) {
+        gButtonPressed = 1;
+	gOldMouseX = x;
+	gOldMouseY = y;
+
+        // TODO: button press
+    } else {
+        gButtonPressed = -1;
+        // TODO: button release
+    }
+    redraw(window);
+}
+
+static void motion(GLFWwindow *window, double x, double y)
+{
+    // to handle https://github.com/glfw/glfw/issues/161
+    // If no motion has been reported yet, we catch the first motion
+    // reported and store the current location
+    if(!gMotionReported) {
+        gMotionReported = true;
+        gOldMouseX = x;
+        gOldMouseY = y;
+    }
+
+    gOldMouseX = x;
+    gOldMouseY = y;
+
+    if(gButtonPressed == 1) {
+        // TODO motion while dragging
+    } else {
+        // TODO motion while not dragging
+    }
+    redraw(window);
+}
+
+const int pixel_scale = 3;
+
+void load_joystick_setup()
+{
+    FILE *fp = fopen("joystick.ini", "r");
+    if(fp == NULL) {
+        fprintf(stderr,"no joystick.ini file found, assuming defaults\n");
+        fprintf(stderr,"store GLFW joystick axis 0 and 1 and button 0 and 1 in joystick.ini\n");
+        fprintf(stderr,"e.g. \"3 4 12 11\" for Samsung EI-GP20\n");
+        return;
+    }
+    if(fscanf(fp, "%d %d %d %d", &joystick_axis0, &joystick_axis1, &joystick_button0, &joystick_button1) != 4) {
+        fprintf(stderr,"couldn't parse joystick.ini\n");
+        fprintf(stderr,"store GLFW joystick axis 0 and 1 and button 0 and 1 in joystick.ini\n");
+        fprintf(stderr,"e.g. \"3 4 12 11\" for Samsung EI-GP20\n");
+    }
+    fclose(fp);
+}
+
+void iterate_ui()
+{
+    CheckOpenGL(__FILE__, __LINE__);
+    if(glfwWindowShouldClose(my_window)) {
+        quit = true;
+        return;
+    }
+
+    CheckOpenGL(__FILE__, __LINE__);
+    redraw(my_window);
+    CheckOpenGL(__FILE__, __LINE__);
+    glfwSwapBuffers(my_window);
+    CheckOpenGL(__FILE__, __LINE__);
+
+    if(glfwJoystickPresent(GLFW_JOYSTICK_1)) {
+        if(false) printf("joystick 1 present\n");
+
+        int axis_count, button_count;
+        const float* axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &axis_count);
+        const unsigned char* buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &button_count);
+
+        if(false) for(int i = 0; i < axis_count; i++)
+            printf("Axis %d: %f\n", i, axes[i]);
+        if(false)for(int i = 0; i < button_count; i++)
+            printf("Button %d: %s\n", i, (buttons[i] == GLFW_PRESS) ? "pressed" : "not pressed");
+
+        if(axis_count <= joystick_axis0 || axis_count <= joystick_axis1) {
+
+            fprintf(stderr, "couldn't map joystick/gamepad axes\n");
+            fprintf(stderr, "mapped joystick axes are %d and %d, but maximum axis is %d\n", joystick_axis0, joystick_axis1, axis_count);
+            use_joystick = false;
+
+        } else if(button_count <= joystick_button0 && button_count <= joystick_button1) {
+
+            fprintf(stderr, "couldn't map joystick/gamepad buttons\n");
+            fprintf(stderr, "mapped buttons are %d and %d, but maximum button is %d\n", joystick_button0, joystick_button1, button_count);
+            use_joystick = false;
+
+        } else  {
+
+#if 0
+        // TODO: joystick
+            paddle_values[0] = (axes[joystick_axis0] + 1) / 2;
+            paddle_values[1] = (axes[joystick_axis1] + 1) / 2;
+
+            paddle_buttons[0] = buttons[joystick_button0] == GLFW_PRESS;
+            paddle_buttons[1] = buttons[joystick_button1] == GLFW_PRESS;
+#endif
+            use_joystick = true;
+        }
+
+    } else {
+        use_joystick = false;
+    }
+
+    glfwPollEvents();
+}
+
+void shutdown_ui()
+{
+    glfwTerminate();
+}
+
+void initialize_ui()
+{
+    load_joystick_setup();
+
+    glfwSetErrorCallback(error_callback);
+
+    if(!glfwInit())
+        exit(EXIT_FAILURE);
+
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); 
+
+    // glfwWindowHint(GLFW_SAMPLES, 4);
+    my_window = glfwCreateWindow(SCREEN_X * SCREEN_SCALE, SCREEN_Y * SCREEN_SCALE, "ColecoVision", NULL, NULL);
+    if (!my_window) {
+        glfwTerminate();
+        fprintf(stdout, "Couldn't open main window\n");
+        exit(EXIT_FAILURE);
+    }
+
+    glfwMakeContextCurrent(my_window);
+    // printf("GL_RENDERER: %s\n", glGetString(GL_RENDERER));
+    // printf("GL_VERSION: %s\n", glGetString(GL_VERSION));
+
+    glfwGetWindowSize(my_window, &gWindowWidth, &gWindowHeight);
+    make_to_screen_transform();
+    initialize_gl();
+    resize_based_on_window(my_window);
+    CheckOpenGL(__FILE__, __LINE__);
+
+    glfwSetKeyCallback(my_window, key);
+    glfwSetMouseButtonCallback(my_window, button);
+    glfwSetCursorPosCallback(my_window, motion);
+    glfwSetFramebufferSizeCallback(my_window, resize);
+    glfwSetWindowRefreshCallback(my_window, redraw);
+    CheckOpenGL(__FILE__, __LINE__);
+}
 
 int main(int argc, char **argv)
 {
@@ -1866,6 +2145,8 @@ int main(int argc, char **argv)
     if(aodev == NULL)
         exit(EXIT_FAILURE);
 
+    initialize_ui();
+
     static unsigned char rom_temp[65536];
     FILE *fp;
 
@@ -1907,15 +2188,6 @@ int main(int argc, char **argv)
     boards.push_back(bios_rom);
     boards.push_back(cart_rom);
     boards.push_back(new RAMboard(0x6000, 0x2000));
-
-    int rfbargc = 0;
-    char **rfbargv = 0;
-    rfbScreenInfoPtr server = rfbGetScreen(&rfbargc,rfbargv,SCREEN_X * SCREEN_SCALE,SCREEN_Y * SCREEN_SCALE,8,3,4);
-    server->frameBuffer = (char *)framebuffer;
-    server->kbdAddEvent = handleKey;
-
-    rfbInitServer(server);
-    rfbProcessEvents(server, 1000);
 
     for(auto b = boards.begin(); b != boards.end(); b++) {
         (*b)->init();
@@ -1961,8 +2233,6 @@ int main(int argc, char **argv)
             }
 
             VDP->perform_scanout(framebuffer);
-            rfbMarkRectAsModified(server, 0, 0, SCREEN_X * SCREEN_SCALE, SCREEN_Y * SCREEN_SCALE);
-            rfbProcessEvents(server, 1 /* 1000 */);
 
             std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
 
@@ -2007,7 +2277,10 @@ int main(int argc, char **argv)
         // printf("%f in board idle\n", (stop - start) * 1000000);
 
         coleco->fill_flush_audio(clk, audio_flush);
+        iterate_ui();
     }
+
+    shutdown_ui();
 
     return 0;
 }
