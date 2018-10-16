@@ -1708,10 +1708,11 @@ GLuint image_y_offset_location;
 const int raster_coords_attrib = 0;
 
 bool use_joystick = false;
-int joystick_axis0 = 0;
-int joystick_axis1 = 1;
-int joystick_button0 = 0;
-int joystick_button1 = 1;
+int joystick_button_west = 1;
+int joystick_button_east = 1;
+int joystick_button_north = 1;
+int joystick_button_south = 1;
+int joystick_button_fire = 1;
 
 static int gWindowWidth, gWindowHeight;
 
@@ -2021,14 +2022,14 @@ void load_joystick_setup()
     FILE *fp = fopen("joystick.ini", "r");
     if(fp == NULL) {
         fprintf(stderr,"no joystick.ini file found, assuming defaults\n");
-        fprintf(stderr,"store GLFW joystick axis 0 and 1 and button 0 and 1 in joystick.ini\n");
-        fprintf(stderr,"e.g. \"3 4 12 11\" for Samsung EI-GP20\n");
+        fprintf(stderr,"store GLFW joystick buttons for N, S, E, W, Fire in joystick.ini\n");
+        fprintf(stderr,"e.g. \"1 21 23 22 24\" for Samsung EI-GP20\n");
         return;
     }
-    if(fscanf(fp, "%d %d %d %d", &joystick_axis0, &joystick_axis1, &joystick_button0, &joystick_button1) != 4) {
+    if(fscanf(fp, "%d %d %d %d %d", &joystick_button_north, &joystick_button_south, &joystick_button_east, &joystick_button_west, &joystick_button_fire) != 4) {
         fprintf(stderr,"couldn't parse joystick.ini\n");
-        fprintf(stderr,"store GLFW joystick axis 0 and 1 and button 0 and 1 in joystick.ini\n");
-        fprintf(stderr,"e.g. \"3 4 12 11\" for Samsung EI-GP20\n");
+        fprintf(stderr,"store GLFW joystick buttons for N, S, E, W, Fire in joystick.ini\n");
+        fprintf(stderr,"e.g. \"1 21 23 22 24\" for Samsung EI-GP20\n");
     }
     fclose(fp);
 }
@@ -2041,48 +2042,64 @@ void iterate_ui()
         return;
     }
 
-    VDP->perform_scanout(framebuffer);
-
     CheckOpenGL(__FILE__, __LINE__);
     redraw(my_window);
     CheckOpenGL(__FILE__, __LINE__);
     glfwSwapBuffers(my_window);
     CheckOpenGL(__FILE__, __LINE__);
 
+    if(0)
+        for(int i = 0; i < 16; i++) {
+            if(glfwJoystickPresent(GLFW_JOYSTICK_1 + i))
+                printf("JOYSTICK_%d present\n", 1 + i);
+            else
+                printf("JOYSTICK_%d not present\n", 1 + i);
+        }
+
     if(glfwJoystickPresent(GLFW_JOYSTICK_1)) {
         if(false) printf("joystick 1 present\n");
 
-        int axis_count, button_count;
-        const float* axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &axis_count);
+        int button_count;
         const unsigned char* buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &button_count);
 
-        if(false) for(int i = 0; i < axis_count; i++)
-            printf("Axis %d: %f\n", i, axes[i]);
         if(false)for(int i = 0; i < button_count; i++)
             printf("Button %d: %s\n", i, (buttons[i] == GLFW_PRESS) ? "pressed" : "not pressed");
 
-        if(axis_count <= joystick_axis0 || axis_count <= joystick_axis1) {
+        if(
+            button_count <= joystick_button_north &&
+            button_count <= joystick_button_south &&
+            button_count <= joystick_button_east &&
+            button_count <= joystick_button_west &&
+            button_count <= joystick_button_fire
+            ){
 
-            fprintf(stderr, "couldn't map joystick/gamepad axes\n");
-            fprintf(stderr, "mapped joystick axes are %d and %d, but maximum axis is %d\n", joystick_axis0, joystick_axis1, axis_count);
-            use_joystick = false;
-
-        } else if(button_count <= joystick_button0 && button_count <= joystick_button1) {
-
-            fprintf(stderr, "couldn't map joystick/gamepad buttons\n");
-            fprintf(stderr, "mapped buttons are %d and %d, but maximum button is %d\n", joystick_button0, joystick_button1, button_count);
+            fprintf(stderr, "couldn't map gamepad buttons\n");
             use_joystick = false;
 
         } else  {
 
-#if 0
-        // TODO: joystick
-            paddle_values[0] = (axes[joystick_axis0] + 1) / 2;
-            paddle_values[1] = (axes[joystick_axis1] + 1) / 2;
+            user_flags = (user_flags & ~CONTROLLER1_EAST_BIT);
+            user_flags = (user_flags & ~CONTROLLER1_WEST_BIT);
+            user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT);
+            user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT);
+            user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT);
 
-            paddle_buttons[0] = buttons[joystick_button0] == GLFW_PRESS;
-            paddle_buttons[1] = buttons[joystick_button1] == GLFW_PRESS;
-#endif
+            if(buttons[joystick_button_west] == GLFW_PRESS) {
+                user_flags = (user_flags & ~CONTROLLER1_WEST_BIT) | CONTROLLER1_WEST_BIT;
+            }
+            if(buttons[joystick_button_east] == GLFW_PRESS) {
+                user_flags = (user_flags & ~CONTROLLER1_EAST_BIT) | CONTROLLER1_EAST_BIT;
+            }
+            if(buttons[joystick_button_north] == GLFW_PRESS) {
+                user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT) | CONTROLLER1_NORTH_BIT;
+            }
+            if(buttons[joystick_button_south] == GLFW_PRESS) {
+                user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT) | CONTROLLER1_SOUTH_BIT;
+            }
+            if(buttons[joystick_button_fire] == GLFW_PRESS) {
+                user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT) | CONTROLLER1_FIRE_BIT;
+            }
+
             use_joystick = true;
         }
 
@@ -2270,6 +2287,7 @@ int main(int argc, char **argv)
                 clk += cycles;
             }
 
+            VDP->perform_scanout(framebuffer);
             std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
 
             auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
