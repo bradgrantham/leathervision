@@ -2027,8 +2027,6 @@ static void motion(GLFWwindow *window, double x, double y)
     redraw(window);
 }
 
-const int pixel_scale = 3;
-
 void load_joystick_setup()
 {
     FILE *fp = fopen("joystick.ini", "r");
