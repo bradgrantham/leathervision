@@ -1664,12 +1664,13 @@ void usage(char *progname)
     printf("\n");
 }
 
-const int CONTROLLER1_FIRE_BIT = 0x40;
+const int CONTROLLER1_FIRE_LEFT_BIT = 0x40;
 const int CONTROLLER1_NORTH_BIT = 0x01; // 0x08;
 const int CONTROLLER1_EAST_BIT = 0x02; // 0x04;
 const int CONTROLLER1_SOUTH_BIT = 0x04; // 0x02;
 const int CONTROLLER1_WEST_BIT = 0x08; // 0x01;
-const int CONTROLLER1_KEYPAD_MASK = 0xFF00;
+const int CONTROLLER1_KEYPAD_MASK = 0x0F00;
+const int CONTROLLER1_FIRE_RIGHT_BIT = 0x4000;
 const int CONTROLLER1_KEYPAD_0 = 0x0500;
 const int CONTROLLER1_KEYPAD_1 = 0x0200;
 const int CONTROLLER1_KEYPAD_2 = 0x0800;
@@ -1866,8 +1867,11 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
             case GLFW_KEY_D:
                 user_flags = (user_flags & ~CONTROLLER1_EAST_BIT) | CONTROLLER1_EAST_BIT;
                 break;
+            case GLFW_KEY_ENTER:
+                user_flags = (user_flags & ~CONTROLLER1_FIRE_RIGHT_BIT) | CONTROLLER1_FIRE_RIGHT_BIT;
+                break;
             case GLFW_KEY_SPACE:
-                user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT) | CONTROLLER1_FIRE_BIT;
+                user_flags = (user_flags & ~CONTROLLER1_FIRE_LEFT_BIT) | CONTROLLER1_FIRE_LEFT_BIT;
                 break;
             case GLFW_KEY_0:
                 user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_0;
@@ -1922,8 +1926,11 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
             case GLFW_KEY_D:
                 user_flags = (user_flags & ~CONTROLLER1_EAST_BIT);
                 break;
+            case GLFW_KEY_ENTER:
+                user_flags = (user_flags & ~CONTROLLER1_FIRE_RIGHT_BIT);
+                break;
             case GLFW_KEY_SPACE:
-                user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT);
+                user_flags = (user_flags & ~CONTROLLER1_FIRE_LEFT_BIT);
                 break;
             case GLFW_KEY_0:
                 user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
@@ -2092,7 +2099,7 @@ void iterate_ui()
             user_flags = (user_flags & ~CONTROLLER1_WEST_BIT);
             user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT);
             user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT);
-            user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT);
+            user_flags = (user_flags & ~CONTROLLER1_FIRE_LEFT_BIT);
 
             if(buttons[joystick_button_west] == GLFW_PRESS) {
                 user_flags = (user_flags & ~CONTROLLER1_WEST_BIT) | CONTROLLER1_WEST_BIT;
@@ -2107,7 +2114,7 @@ void iterate_ui()
                 user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT) | CONTROLLER1_SOUTH_BIT;
             }
             if(buttons[joystick_button_fire] == GLFW_PRESS) {
-                user_flags = (user_flags & ~CONTROLLER1_FIRE_BIT) | CONTROLLER1_FIRE_BIT;
+                user_flags = (user_flags & ~CONTROLLER1_FIRE_LEFT_BIT) | CONTROLLER1_FIRE_LEFT_BIT;
             }
 
             use_joystick = true;
