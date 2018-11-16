@@ -37,6 +37,7 @@ const bool debug = false;
 
 unsigned long user_flags = 0;
 
+Z80_STATE z80state;
 bool Z80_INTERRUPT_FETCH = false;
 unsigned short Z80_INTERRUPT_FETCH_DATA;
 
@@ -1725,7 +1726,8 @@ int joystick_button_west = 1;
 int joystick_button_east = 1;
 int joystick_button_north = 1;
 int joystick_button_south = 1;
-int joystick_button_fire = 1;
+int joystick_button_fire_left = 1;
+int joystick_button_fire_right = 1;
 
 static int gWindowWidth, gWindowHeight;
 
@@ -1914,6 +1916,9 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
         }
     } else if(action == GLFW_RELEASE) {
         switch(key) {
+            case GLFW_KEY_R:
+                Z80Reset(&z80state);
+                break;
             case GLFW_KEY_W:
                 user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT);
                 break;
@@ -2039,14 +2044,14 @@ void load_joystick_setup()
     FILE *fp = fopen("joystick.ini", "r");
     if(fp == NULL) {
         fprintf(stderr,"no joystick.ini file found, assuming defaults\n");
-        fprintf(stderr,"store GLFW joystick buttons for N, S, E, W, Fire in joystick.ini\n");
-        fprintf(stderr,"e.g. \"1 21 23 22 24\" for Samsung EI-GP20\n");
+        fprintf(stderr,"store GLFW joystick buttons for N, S, E, W, FireLeft, FireRight in joystick.ini\n");
+        fprintf(stderr,"e.g. \"21 23 22 24 1 2\" for Samsung EI-GP20\n");
         return;
     }
-    if(fscanf(fp, "%d %d %d %d %d", &joystick_button_north, &joystick_button_south, &joystick_button_east, &joystick_button_west, &joystick_button_fire) != 5) {
+    if(fscanf(fp, "%d %d %d %d %d %d", &joystick_button_north, &joystick_button_south, &joystick_button_east, &joystick_button_west, &joystick_button_fire_left, &joystick_button_fire_right) != 6) {
         fprintf(stderr,"couldn't parse joystick.ini\n");
-        fprintf(stderr,"store GLFW joystick buttons for N, S, E, W, Fire in joystick.ini\n");
-        fprintf(stderr,"e.g. \"1 21 23 22 24\" for Samsung EI-GP20\n");
+        fprintf(stderr,"store GLFW joystick buttons for N, S, E, W, FireLeft, FireRight in joystick.ini\n");
+        fprintf(stderr,"e.g. \"21 23 22 24 1 2\" for Samsung EI-GP20\n");
     }
     fclose(fp);
 }
@@ -2087,7 +2092,8 @@ void iterate_ui()
             button_count <= joystick_button_south &&
             button_count <= joystick_button_east &&
             button_count <= joystick_button_west &&
-            button_count <= joystick_button_fire
+            button_count <= joystick_button_fire_left &&
+            button_count <= joystick_button_fire_right
             ){
 
             fprintf(stderr, "couldn't map gamepad buttons\n");
@@ -2100,6 +2106,7 @@ void iterate_ui()
             user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT);
             user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT);
             user_flags = (user_flags & ~CONTROLLER1_FIRE_LEFT_BIT);
+            user_flags = (user_flags & ~CONTROLLER1_FIRE_RIGHT_BIT);
 
             if(buttons[joystick_button_west] == GLFW_PRESS) {
                 user_flags = (user_flags & ~CONTROLLER1_WEST_BIT) | CONTROLLER1_WEST_BIT;
@@ -2113,8 +2120,11 @@ void iterate_ui()
             if(buttons[joystick_button_south] == GLFW_PRESS) {
                 user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT) | CONTROLLER1_SOUTH_BIT;
             }
-            if(buttons[joystick_button_fire] == GLFW_PRESS) {
+            if(buttons[joystick_button_fire_left] == GLFW_PRESS) {
                 user_flags = (user_flags & ~CONTROLLER1_FIRE_LEFT_BIT) | CONTROLLER1_FIRE_LEFT_BIT;
+            }
+            if(buttons[joystick_button_fire_right] == GLFW_PRESS) {
+                user_flags = (user_flags & ~CONTROLLER1_FIRE_RIGHT_BIT) | CONTROLLER1_FIRE_RIGHT_BIT;
             }
 
             use_joystick = true;
@@ -2265,14 +2275,13 @@ int main(int argc, char **argv)
         (*b)->init();
     }
 
-    Z80_STATE state;
-    memset(&state, 0, sizeof(state));
+    memset(&z80state, 0, sizeof(z80state));
 
-    Z80Reset(&state);
+    Z80Reset(&z80state);
 
     if(debugger) {
         enter_debugger = true;
-        debugger->process_line(boards, &state, debugger_argument);
+        debugger->process_line(boards, &z80state, debugger_argument);
     }
 
     std::chrono::time_point<std::chrono::system_clock> then = std::chrono::system_clock::now();
@@ -2282,16 +2291,16 @@ int main(int argc, char **argv)
     {
         long long clocks_per_slice = micros_per_slice * machine_clock_rate / 1000000;
 
-        if(debugger && (enter_debugger || debugger->should_debug(boards, &state))) {
-            debugger->go(stdin, boards, &state);
+        if(debugger && (enter_debugger || debugger->should_debug(boards, &z80state))) {
+            debugger->go(stdin, boards, &z80state);
             enter_debugger = false;
         } else {
             if(debugger) {
                 unsigned long long cycles = 0;
                 do {
-                    cycles += Z80Emulate(&state, 1);
-                    if(enter_debugger || debugger->should_debug(boards, &state)) {
-                        debugger->go(stdin, boards, &state);
+                    cycles += Z80Emulate(&z80state, 1);
+                    if(enter_debugger || debugger->should_debug(boards, &z80state)) {
+                        debugger->go(stdin, boards, &z80state);
                         enter_debugger = false;
                     }
                 } while(cycles < clocks_per_slice);
@@ -2299,7 +2308,7 @@ int main(int argc, char **argv)
             } else {
                 unsigned long long cycles = 0;
                 do {
-                    cycles += Z80Emulate(&state, 4);
+                    cycles += Z80Emulate(&z80state, 4);
                 } while(cycles < clocks_per_slice);
                 clk += cycles;
             }
@@ -2327,7 +2336,7 @@ int main(int argc, char **argv)
                 // Pretend to be 8259 configured for Alice2:
                 Z80_INTERRUPT_FETCH = true;
                 Z80_INTERRUPT_FETCH_DATA = 0x3f00 + irq * 4;
-                clk += Z80Interrupt(&state, 0xCD);
+                clk += Z80Interrupt(&z80state, 0xCD);
                 break;
             }
         }
@@ -2336,7 +2345,7 @@ int main(int argc, char **argv)
         // printf("%f in board irq check\n", (stop - start) * 1000000);
 
         if(coleco->nmi_requested())
-            Z80NonMaskableInterrupt (&state);
+            Z80NonMaskableInterrupt (&z80state);
 
         gettimeofday(&tv, NULL);
         start = tv.tv_sec + tv.tv_usec / 1000000.0;
