@@ -2096,9 +2096,13 @@ emulate_next_instruction:
                                 int     e;
 
                                 if (DD(Q(opcode))) {
-                                
-                                        Z80_FETCH_BYTE(pc, e);
-                                        e = (char) e;
+
+					unsigned char c1;
+					signed char c2;
+                                        Z80_FETCH_BYTE(pc, c1);
+					c2 = c1;
+					e = c2;
+// printf("blarf - JR_DD_E %d\n", e);
                                         pc += e + 1;
 
                                         elapsed_cycles += 8;

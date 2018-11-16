@@ -34,6 +34,7 @@
 #include "gl_utility.h"
 
 const bool debug = false;
+const bool profiling = false;
 
 unsigned long user_flags = 0;
 
@@ -41,9 +42,11 @@ Z80_STATE z80state;
 bool Z80_INTERRUPT_FETCH = false;
 unsigned short Z80_INTERRUPT_FETCH_DATA;
 
-const long long machine_clock_rate = 3579545;
-unsigned long long clk = 0;
-long long micros_per_slice = 16666;
+typedef long long clk_t;
+
+const clk_t machine_clock_rate = 3579545;
+clk_t clk = 0;
+clk_t micros_per_slice = 16666;
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
@@ -142,7 +145,7 @@ struct SN76489A
     uint16_t noise_register = 0x8000;
     unsigned int noise_flipflop = 0;
 
-    unsigned long long previous_clock;
+    clk_t previous_clock;
 
     SN76489A(unsigned int clock_rate_) :
         clock_rate(clock_rate_)
@@ -194,16 +197,16 @@ struct SN76489A
         }
     }
 
-    unsigned long long calc_flip_count(unsigned long long previous_clock, unsigned long long current_clock, unsigned int previous_counter, unsigned int length)
+    clk_t calc_flip_count(clk_t previous_clock, clk_t current_clock, unsigned int previous_counter, unsigned int length)
     {
         if(length < 1)
             return 0;
-        unsigned long long clocks = current_clock - previous_clock;
-        unsigned long long flips = (previous_counter + clocks) / length;
+        clk_t clocks = current_clock - previous_clock;
+        clk_t flips = (previous_counter + clocks) / length;
         return flips;
     }
 
-    void advance_noise_to_clock(unsigned long long flips)
+    void advance_noise_to_clock(clk_t flips)
     {
         for(int i = 0; i < flips; i++) {
             noise_flipflop ^= 1;
@@ -222,9 +225,9 @@ struct SN76489A
         }
     }
 
-    void advance_to_clock(unsigned long long clk)
+    void advance_to_clock(clk_t clk)
     {
-        unsigned long long tone_flips[3];
+        clk_t tone_flips[3];
         
         for(int i = 0; i < 3; i++) {
             tone_flips[i] = calc_flip_count(previous_clock, clk, tone_counters[i], tone_lengths[i]);
@@ -263,14 +266,14 @@ struct SN76489A
     static const int sample_rate = 44100;
     static const size_t audio_buffer_size = sample_rate / 100;
     char audio_buffer[audio_buffer_size];
-    long long audio_buffer_next_sample = 0;
+    clk_t audio_buffer_next_sample = 0;
 
-    void generate_audio(unsigned long long clk, audio_flush_func audio_flush)
+    void generate_audio(clk_t clk, audio_flush_func audio_flush)
     {
-        for(long long c = previous_clock; c < clk; c++) {
+        for(clk_t c = previous_clock; c < clk; c++) {
 
-            long long current_audio_sample = c * sample_rate / clock_rate;
-            long long next_audio_sample = (c + 1) * sample_rate / clock_rate;
+            clk_t current_audio_sample = c * sample_rate / clock_rate;
+            clk_t next_audio_sample = (c + 1) * sample_rate / clock_rate;
 
             if(next_audio_sample > current_audio_sample) {
                 advance_to_clock(c);
@@ -471,13 +474,19 @@ struct TMS9918A
 
             int third = (row / 8) << THIRD_SHIFT;
 
-            int address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
+	    if(false) {
 
-            // pattern_address = ((((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask) | pattern_row;
-            pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) | pattern_row;
+		int address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
 
-            // color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row) & address_mask;
-            color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row);
+		pattern_address = ((((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask) | pattern_row;
+
+                color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row) & address_mask;
+
+	    } else {
+
+		pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) | pattern_row;
+		color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row);
+	    }
 
             sprites_valid = true;
 
@@ -503,7 +512,7 @@ struct TMS9918A
 
         nybble_to_color(which_color, color);
 
-        if(sprites_valid) {
+        if(sprites_valid) { // XXX
             int sprite_table_address = (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
             bool mag2x = registers[1] & VR1_MAG2X_MASK;
             bool size4 = registers[1] & VR1_SIZE4_MASK;
@@ -719,7 +728,7 @@ struct ColecoHW : board_base
         return vdp.nmi_requested();
     }
 
-    void fill_flush_audio(unsigned long long clk, audio_flush_func audio_flush)
+    void fill_flush_audio(clk_t clk, audio_flush_func audio_flush)
     {
         sound.generate_audio(clk, audio_flush);
     }
@@ -727,10 +736,10 @@ struct ColecoHW : board_base
 
 struct RAMboard : board_base
 {
-    unsigned int base;
-    unsigned int length;
+    int base;
+    int length;
     std::unique_ptr<unsigned char> bytes;
-    RAMboard(unsigned int base_, unsigned int length_) :
+    RAMboard(int base_, int length_) :
         base(base_),
         length(length_),
         bytes(new unsigned char[length])
@@ -758,10 +767,10 @@ struct RAMboard : board_base
 
 struct ROMboard : board_base
 {
-    unsigned int base;
-    unsigned int length;
+    int base;
+    int length;
     std::unique_ptr<unsigned char> bytes;
-    ROMboard(unsigned int base_, unsigned int length_, unsigned char bytes_[]) : 
+    ROMboard(int base_, int length_, unsigned char bytes_[]) : 
         base(base_),
         length(length_),
         bytes(new unsigned char[length])
@@ -1070,7 +1079,7 @@ bool debugger_readbin(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* 
     }
     size_t size;
     while((size = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
-        for(int i = 0; i <= size; i++, a++)
+        for(size_t i = 0; i <= size; i++, a++)
             Z80_WRITE_BYTE(a, buffer[i]);
     }
     printf("Read %d (0x%04X) bytes from %s into 0x%04X..0x%04X\n",
@@ -1437,7 +1446,7 @@ bool debugger_disable(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* 
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[1]);
         return false;
     }
-    if(i < 0 || i >= d->breakpoints.size()) {
+    if(i < 0 || (size_t)i >= d->breakpoints.size()) {
         fprintf(stderr, "breakpoint %d is out of range\n", i);
         return false;
     }
@@ -1457,7 +1466,7 @@ bool debugger_enable(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* s
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[1]);
         return false;
     }
-    if(i < 0 || i >= d->breakpoints.size()) {
+    if(i < 0 || (size_t)i >= d->breakpoints.size()) {
         fprintf(stderr, "breakpoint %d is out of range\n", i);
         return false;
     }
@@ -1477,7 +1486,7 @@ bool debugger_remove(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* s
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[1]);
         return false;
     }
-    if(i < 0 || i >= d->breakpoints.size()) {
+    if(i < 0 || (size_t)i >= d->breakpoints.size()) {
         fprintf(stderr, "breakpoint %d is out of range\n", i);
         return false;
     }
@@ -1490,7 +1499,7 @@ bool debugger_list(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
     printf("breakpoints:\n");
     for(auto i = d->breakpoints.begin(); i != d->breakpoints.end(); i++) {
         BreakPoint& bp = (*i);
-        printf("%ld : ", i - d->breakpoints.begin());
+        printf("%d : ", i - d->breakpoints.begin());
         printf("%s ", bp.enabled ? " enabled" : "disabled");
         printf("%s ", (bp.type == BreakPoint::INSTRUCTION) ? " ins" : "data");
         if(bp.type == BreakPoint::INSTRUCTION) {
@@ -1758,8 +1767,8 @@ vertex_array screen_image_rectangle;
 
 static const char *hires_vertex_shader = "\n\
     uniform mat3 to_screen;\n\
-    in vec2 vertex_coords;\n\
-    out vec2 raster_coords;\n\
+    attribute vec2 vertex_coords;\n\
+    varying vec2 raster_coords;\n\
     uniform float x_offset;\n\
     uniform float y_offset;\n\
     \n\
@@ -1771,17 +1780,15 @@ static const char *hires_vertex_shader = "\n\
     }\n";
 
 static const char *image_fragment_shader = "\n\
-    in vec2 raster_coords;\n\
+    varying vec2 raster_coords;\n\
     uniform vec2 image_coord_scale;\n\
     uniform sampler2D image;\n\
-    \n\
-    out vec4 color;\n\
     \n\
     void main()\n\
     {\n\
         ivec2 tc = ivec2(raster_coords.x, raster_coords.y);\n\
-        vec3 pixel = texture(image, raster_coords * image_coord_scale).xyz;\n\
-        color = vec4(pixel, 1);\n\
+        vec3 pixel = texture2D(image, raster_coords * image_coord_scale).xyz;\n\
+        gl_FragColor = vec4(pixel, 1); \n\
     }\n";
 
 
@@ -2151,12 +2158,13 @@ void initialize_ui()
     if(!glfwInit())
         exit(EXIT_FAILURE);
 
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); 
+    // glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    // glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+    // glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    // glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); 
 
     // glfwWindowHint(GLFW_SAMPLES, 4);
+    glfwWindowHint(GLFW_DOUBLEBUFFER, 1);
     my_window = glfwCreateWindow(SCREEN_X * SCREEN_SCALE, SCREEN_Y * SCREEN_SCALE, "ColecoVision", NULL, NULL);
     if (!my_window) {
         glfwTerminate();
@@ -2165,8 +2173,8 @@ void initialize_ui()
     }
 
     glfwMakeContextCurrent(my_window);
-    // printf("GL_RENDERER: %s\n", glGetString(GL_RENDERER));
-    // printf("GL_VERSION: %s\n", glGetString(GL_VERSION));
+    printf("GL_RENDERER: %s\n", glGetString(GL_RENDERER));
+    printf("GL_VERSION: %s\n", glGetString(GL_VERSION));
 
     glfwGetWindowSize(my_window, &gWindowWidth, &gWindowHeight);
     make_to_screen_transform();
@@ -2249,7 +2257,7 @@ int main(int argc, char **argv)
     ROMboard *bios_rom = new ROMboard(0, bios_length, rom_temp);
 
     audio_flush_func audio_flush;
-    audio_flush = [](char *buf, size_t sz){ ao_play(aodev, buf, sz); };
+    audio_flush = [](char *buf, size_t sz){ /* ao_play(aodev, buf, sz); */ };
 
     fp = fopen(cart_name, "rb");
     if(fp == NULL) {
@@ -2286,17 +2294,18 @@ int main(int argc, char **argv)
 
     std::chrono::time_point<std::chrono::system_clock> then = std::chrono::system_clock::now();
 
-    unsigned long long clk = 0;
+    clk_t clk = 0;
     while(!quit)
     {
-        long long clocks_per_slice = micros_per_slice * machine_clock_rate / 1000000;
+        clk_t clocks_per_slice = micros_per_slice * machine_clock_rate / 1000000;
 
         if(debugger && (enter_debugger || debugger->should_debug(boards, &z80state))) {
             debugger->go(stdin, boards, &z80state);
             enter_debugger = false;
         } else {
+            std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
             if(debugger) {
-                unsigned long long cycles = 0;
+                clk_t cycles = 0;
                 do {
                     cycles += Z80Emulate(&z80state, 1);
                     if(enter_debugger || debugger->should_debug(boards, &z80state)) {
@@ -2306,30 +2315,36 @@ int main(int argc, char **argv)
                 } while(cycles < clocks_per_slice);
                 clk += cycles;
             } else {
-                unsigned long long cycles = 0;
-                do {
-                    cycles += Z80Emulate(&z80state, 4);
-                } while(cycles < clocks_per_slice);
+                clk_t cycles = 0;
+		cycles += Z80Emulate(&z80state, clocks_per_slice);
+                while(cycles < clocks_per_slice) {
+                    cycles += Z80Emulate(&z80state, 1000);
+		}
                 clk += cycles;
             }
+            std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
+            auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+	    if(profiling) printf("insns %lld\n", real_elapsed_micros.count());
 
+	    before = std::chrono::system_clock::now();
             VDP->perform_scanout(framebuffer);
+	    after = std::chrono::system_clock::now();
+	    real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+	    if(profiling) printf("VDP scanout %lld\n", real_elapsed_micros.count());
+
             std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
 
             auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
             if(!run_fast || pause_cpu) {
                 std::this_thread::sleep_for(std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate) - elapsed_micros);
+                if(profiling) printf("elapsed %lld, sleep %lld\n", elapsed_micros.count(), std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate) - elapsed_micros);
                 // printf("%f%%\n", 100.0 - elapsed_micros.count() * 100.0 / std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate).count());
             }
 
             then = now;
         }
 
-        struct timeval tv;
-        double start, stop;
-
-        gettimeofday(&tv, NULL);
-        start = tv.tv_sec + tv.tv_usec / 1000000.0;
+	std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
         for(auto b = boards.begin(); b != boards.end(); b++) {
             int irq;
             if((*b)->board_get_interrupt(irq)) {
@@ -2340,24 +2355,33 @@ int main(int argc, char **argv)
                 break;
             }
         }
-        gettimeofday(&tv, NULL);
-        stop = tv.tv_sec + tv.tv_usec / 1000000.0;
-        // printf("%f in board irq check\n", (stop - start) * 1000000);
 
         if(coleco->nmi_requested())
             Z80NonMaskableInterrupt (&z80state);
 
-        gettimeofday(&tv, NULL);
-        start = tv.tv_sec + tv.tv_usec / 1000000.0;
+	std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
+	auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+	if(profiling) printf("interrupts %lld\n", real_elapsed_micros.count());
+
+	before = std::chrono::system_clock::now();
         for(auto b = boards.begin(); b != boards.end(); b++) {
             (*b)->idle();
         }
-        gettimeofday(&tv, NULL);
-        stop = tv.tv_sec + tv.tv_usec / 1000000.0;
-        // printf("%f in board idle\n", (stop - start) * 1000000);
+	after = std::chrono::system_clock::now();
+	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+	if(profiling) printf("idle %lld\n", real_elapsed_micros.count());
 
-        coleco->fill_flush_audio(clk, audio_flush);
+	before = std::chrono::system_clock::now();
+        // coleco->fill_flush_audio(clk, audio_flush);
+	after = std::chrono::system_clock::now();
+	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+	if(profiling) printf("audio %lld\n", real_elapsed_micros.count());
+
+	before = std::chrono::system_clock::now();
         iterate_ui();
+	after = std::chrono::system_clock::now();
+	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+	if(profiling) printf("UI %lld\n", real_elapsed_micros.count());
 
     }
 

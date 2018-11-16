@@ -3,10 +3,13 @@
 BG80D_PATH=bg80d
 USE_BG80D=1
 
-OPT=-g -O3
+OPT=-g
+# OPT=-g -pg
 LDFLAGS=-L/opt/local/lib
+# LDFLAGS=-pg -L/opt/local/lib
 LDLIBS=-lreadline -lao -lglfw -framework OpenGL -framework Cocoa -framework IOkit
-CXXFLAGS=-Wall -I/opt/local/include -I$(BG80D_PATH) -DUSE_BG80D=$(USE_BG80D) -std=c++11 $(OPT)
+CXXFLAGS=-Wall -I/opt/local/include -I$(BG80D_PATH) -DUSE_BG80D=$(USE_BG80D) -std=c++11 $(OPT) -fsigned-char
+CFLAGS	+=	-fsigned-char
 
 VPATH=$(BG80D_PATH)
 

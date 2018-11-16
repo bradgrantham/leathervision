@@ -136,7 +136,7 @@ opengl_texture initialize_texture(int w, int h, unsigned char *pixels)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     CheckOpenGL(__FILE__, __LINE__);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, pixels);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, w, h, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, pixels);
     CheckOpenGL(__FILE__, __LINE__);
     return {w, h, tex};
 }
@@ -145,7 +145,7 @@ GLuint GenerateProgram(const std::string& shader_name, const std::string& vertex
 {
     std::string spec_string;
 
-    spec_string = "#version 140\n";
+    spec_string = "#version 120\n";
 
     // reset line number so that I can view errors with the line number
     // they have in the base shaders.
