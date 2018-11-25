@@ -16,6 +16,8 @@
 #include <fcntl.h>
 #include <readline/readline.h>
 #include <readline/history.h>
+#include <sys/ioctl.h>
+#include <linux/i2c-dev.h>
 
 #include <ao/ao.h>
 
@@ -270,9 +272,9 @@ struct SN76489A
 
     void generate_audio(clk_t clk, audio_flush_func audio_flush)
     {
-        for(clk_t c = previous_clock; c < clk; c++) {
+	clk_t current_audio_sample = previous_clock * sample_rate / clock_rate;
+        for(clk_t c = previous_clock + 1; c < clk; c += 5) {
 
-            clk_t current_audio_sample = c * sample_rate / clock_rate;
             clk_t next_audio_sample = (c + 1) * sample_rate / clock_rate;
 
             if(next_audio_sample > current_audio_sample) {
@@ -285,6 +287,7 @@ struct SN76489A
                     audio_buffer_next_sample = 0;
                 }
             }
+	    current_audio_sample = next_audio_sample;
         }
 
         previous_clock = clk;
@@ -436,7 +439,7 @@ struct TMS9918A
         }
     }
 
-    void get_color(int x, int y, unsigned char color[3])
+    bool get_color(int x, int y, unsigned char color[3])
     {
         bool bitmap_mode = (registers[0] & VR0_BITMAP_MASK);
         bool text_mode = (registers[1] & VR1_TEXT_MASK);
@@ -500,7 +503,7 @@ struct TMS9918A
             color[0] = 255;
             color[1] = 0;
             color[2] = 0;
-            return;
+            return false;
             // abort();
         }
 
@@ -512,7 +515,22 @@ struct TMS9918A
 
         nybble_to_color(which_color, color);
 
-        if(sprites_valid) { // XXX
+	return sprites_valid; 
+    }
+
+    void perform_scanout(unsigned char image[SCREEN_X * SCREEN_Y * 4])
+    {
+	bool sprites_valid;
+        for(int row = 0; row < SCREEN_Y; row++) {
+            for(int col = 0; col < SCREEN_X; col++) {
+                unsigned char color[3];
+                sprites_valid = get_color(col, row, color);
+                unsigned char *pixel = image + (row * SCREEN_X + col) * 4;
+                for(int c = 0; c < 3; c++)
+                    pixel[c] = color[c];
+            }
+        }
+        if(sprites_valid) {
             int sprite_table_address = (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
             bool mag2x = registers[1] & VR1_MAG2X_MASK;
             bool size4 = registers[1] & VR1_SIZE4_MASK;
@@ -535,57 +553,55 @@ struct TMS9918A
                 if(sprite_earlyclock)
                     sprite_x -= 32;
 
-                if(x >= sprite_x && y >= sprite_y) {
-                    int within_sprite_x, within_sprite_y;
+		for(int y = sprite_y; y < sprite_y + 16; y++) {
+		    for(int x = sprite_x; x < sprite_x + 16; x++) {
+			unsigned char color[3];
+			unsigned char *pixel = image + (y * SCREEN_X + x) * 4;
+			for(int c = 0; c < 3; c++)
+			    color[c] = pixel[c];
 
-                    if(mag2x) {
-                        within_sprite_x = (x - sprite_x) / 2;
-                        within_sprite_y = (y - sprite_y) / 2;
-                    } else {
-                        within_sprite_x = x - sprite_x;
-                        within_sprite_y = y - sprite_y;
-                    }
+			if(x >= sprite_x && y >= sprite_y) {
+			    int within_sprite_x, within_sprite_y;
 
-                    if(size4) {
-                        if((within_sprite_x < 16) && (within_sprite_y < 16)) {
+			    if(mag2x) {
+				within_sprite_x = (x - sprite_x) / 2;
+				within_sprite_y = (y - sprite_y) / 2;
+			    } else {
+				within_sprite_x = x - sprite_x;
+				within_sprite_y = y - sprite_y;
+			    }
 
-                            int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
-                            int within_quadrant_y = within_sprite_y % 8;
-                            int within_quadrant_x = within_sprite_x % 8;
-                            int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
-                            int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
-                            bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
-                            if(bit) {
-                                sprite_int = had_pixel;
-                                nybble_to_color(sprite_color, color);
-                                had_pixel = true;
-                            }
-                        }
+			    if(size4) {
+				if((within_sprite_x < 16) && (within_sprite_y < 16)) {
 
-                    } else if((within_sprite_x < 8) && (within_sprite_y < 8)) {
+				    int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
+				    int within_quadrant_y = within_sprite_y % 8;
+				    int within_quadrant_x = within_sprite_x % 8;
+				    int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
+				    int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
+				    int bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
+				    if(bit) {
+					sprite_int = had_pixel;
+					nybble_to_color(sprite_color, color);
+					had_pixel = true;
+				    }
+				}
 
-                        int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
-                        bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
-                        if(bit) {
-                            sprite_int = had_pixel;
-                            nybble_to_color(sprite_color, color);
-                            had_pixel = true;
-                        }
-                    }
+			    } else if((within_sprite_x < 8) && (within_sprite_y < 8)) {
+
+				int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
+				int bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
+				if(bit) {
+				    sprite_int = had_pixel;
+				    nybble_to_color(sprite_color, color);
+				    had_pixel = true;
+				}
+			    }
+			}
+			for(int c = 0; c < 3; c++)
+			    pixel[c] = color[c];
+		    }
                 }
-            }
-        }
-    }
-
-    void perform_scanout(unsigned char image[SCREEN_X * SCREEN_Y * 4])
-    {
-        for(int row = 0; row < SCREEN_Y; row++) {
-            for(int col = 0; col < SCREEN_X; col++) {
-                unsigned char color[3];
-                get_color(col, row, color);
-                unsigned char *pixel = image + (row * SCREEN_X + col) * 4;
-                for(int c = 0; c < 3; c++)
-                    pixel[c] = color[c];
             }
         }
         vdp_int = true;
@@ -697,19 +713,6 @@ struct ColecoHW : board_base
                 data = ((~user_flags >> 24) & 0xFF);
             return true;
         }
-
-        //if(addr == ColecoHW::PIC_PORT) {
-            //if(response_length == 0)
-                //data = 0;
-            //else {
-                //data = response[response_index++];
-                //if(response_index == response_length) {
-                    //response_length = 0;
-                    //response_index = 0;
-                //}
-            //}
-            //return true;
-        //}
 
         return false;
     }
@@ -2190,6 +2193,72 @@ void initialize_ui()
     CheckOpenGL(__FILE__, __LINE__);
 }
 
+#if RASPBERRY_PI
+
+static const char *i2c_devname = "/dev/i2c-1";
+static int cvhat_fd = -1;
+
+#define CVHAT_ADDRESS 0x5A
+
+int cvhat_init()
+{
+    cvhat_fd = open(i2c_devname, O_RDWR);
+    if (cvhat_fd < 0) {
+        perror("open");
+        return 0;
+    }
+
+    int addr = CVHAT_ADDRESS; /* The I2C address */
+
+    if (ioctl(cvhat_fd, I2C_SLAVE, addr) < 0) {
+	close(cvhat_fd);
+	cvhat_fd = -1;
+        perror("ioctl");
+        return 0;
+    }
+
+    return 1;
+}
+
+const uint8_t CVHAT_JOYSTICK_1 = 0x20;
+const uint8_t CVHAT_JOYSTICK_1_CHANGED = 0x21;
+const uint8_t CVHAT_KEYPAD_1 = 0x22;
+const uint8_t CVHAT_KEYPAD_1_CHANGED = 0x23;
+const uint8_t CVHAT_JOYSTICK_2 = 0x24;
+const uint8_t CVHAT_JOYSTICK_2_CHANGED = 0x25;
+const uint8_t CVHAT_KEYPAD_2 = 0x26;
+const uint8_t CVHAT_KEYPAD_2_CHANGED = 0x27;
+
+uint8_t read_u8(int fd, int reg)
+{
+    unsigned char buf[1];
+    buf[0] = reg;
+    if (write(fd, buf, 1) != 1) {
+        fprintf(stderr, "write register number failed\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (read(fd, buf, 1) != 1) {
+        fprintf(stderr, "read register value failed\n");
+        exit(EXIT_FAILURE);
+    }
+    return buf[0];
+}
+
+void cvhat_read_controllers()
+{
+    if(!(cvhat_fd < 0)) {
+	uint8_t joy1 = read_u8(cvhat_fd, CVHAT_JOYSTICK_1);
+	uint8_t key1 = read_u8(cvhat_fd, CVHAT_KEYPAD_1);
+	uint8_t joy2 = read_u8(cvhat_fd, CVHAT_JOYSTICK_2);
+	uint8_t key2 = read_u8(cvhat_fd, CVHAT_KEYPAD_2);
+	user_flags = (joy1 << 0) | (key1 << 8) |
+	    (joy2 << 16) | (key2 << 24);
+    }
+}
+
+#endif
+
 int main(int argc, char **argv)
 {
     Debugger *debugger = NULL;
@@ -2231,6 +2300,12 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
+#if RASPBERRY_PI
+    if(!cvhat_init()) {
+	printf("couldn't connect to colecovision controller HAT.\n");
+    }
+#endif
+
     aodev = open_ao();
     if(aodev == NULL)
         exit(EXIT_FAILURE);
@@ -2257,7 +2332,7 @@ int main(int argc, char **argv)
     ROMboard *bios_rom = new ROMboard(0, bios_length, rom_temp);
 
     audio_flush_func audio_flush;
-    audio_flush = [](char *buf, size_t sz){ /* ao_play(aodev, buf, sz); */ };
+    audio_flush = [](char *buf, size_t sz){ ao_play(aodev, buf, sz); };
 
     fp = fopen(cart_name, "rb");
     if(fp == NULL) {
@@ -2336,7 +2411,7 @@ int main(int argc, char **argv)
 
             auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
             if(!run_fast || pause_cpu) {
-                std::this_thread::sleep_for(std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate) - elapsed_micros);
+                // std::this_thread::sleep_for(std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate) - elapsed_micros);
                 if(profiling) printf("elapsed %lld, sleep %lld\n", elapsed_micros.count(), std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate) - elapsed_micros);
                 // printf("%f%%\n", 100.0 - elapsed_micros.count() * 100.0 / std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate).count());
             }
@@ -2372,7 +2447,7 @@ int main(int argc, char **argv)
 	if(profiling) printf("idle %lld\n", real_elapsed_micros.count());
 
 	before = std::chrono::system_clock::now();
-        // coleco->fill_flush_audio(clk, audio_flush);
+        coleco->fill_flush_audio(clk, audio_flush);
 	after = std::chrono::system_clock::now();
 	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
 	if(profiling) printf("audio %lld\n", real_elapsed_micros.count());
@@ -2382,6 +2457,12 @@ int main(int argc, char **argv)
 	after = std::chrono::system_clock::now();
 	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
 	if(profiling) printf("UI %lld\n", real_elapsed_micros.count());
+
+	before = std::chrono::system_clock::now();
+        cvhat_read_controllers();
+	after = std::chrono::system_clock::now();
+	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+	if(profiling) printf("CVHAT I2C %lld\n", real_elapsed_micros.count());
 
     }
 
