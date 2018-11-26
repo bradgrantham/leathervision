@@ -17,7 +17,10 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <sys/ioctl.h>
+
+#ifdef __linux__
 #include <linux/i2c-dev.h>
+#endif
 
 #include <ao/ao.h>
 
@@ -2193,7 +2196,7 @@ void initialize_ui()
     CheckOpenGL(__FILE__, __LINE__);
 }
 
-#if RASPBERRY_PI
+#ifdef __linux__
 
 static const char *i2c_devname = "/dev/i2c-1";
 static int cvhat_fd = -1;
@@ -2300,7 +2303,7 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-#if RASPBERRY_PI
+#ifdef __linux__
     if(!cvhat_init()) {
 	printf("couldn't connect to colecovision controller HAT.\n");
     }
@@ -2458,11 +2461,15 @@ int main(int argc, char **argv)
 	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
 	if(profiling) printf("UI %lld\n", real_elapsed_micros.count());
 
-	before = std::chrono::system_clock::now();
-        cvhat_read_controllers();
-	after = std::chrono::system_clock::now();
-	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-	if(profiling) printf("CVHAT I2C %lld\n", real_elapsed_micros.count());
+#ifdef __linux__
+        if(cvhat_fd >= 0) {
+            before = std::chrono::system_clock::now();
+            cvhat_read_controllers();
+            after = std::chrono::system_clock::now();
+            real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+            if(profiling) printf("CVHAT I2C %lld\n", real_elapsed_micros.count());
+        }
+#endif
 
     }
 

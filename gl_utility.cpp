@@ -136,7 +136,11 @@ opengl_texture initialize_texture(int w, int h, unsigned char *pixels)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     CheckOpenGL(__FILE__, __LINE__);
+#ifdef __linux__
     glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, w, h, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, pixels);
+#else /* ! __linux__, e.g. MacOS */
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, pixels);
+#endif
     CheckOpenGL(__FILE__, __LINE__);
     return {w, h, tex};
 }
