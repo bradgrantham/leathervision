@@ -269,6 +269,7 @@ struct SN76489A
     }
 
     static const int sample_rate = 44100;
+    static const clk_t max_audio_forward = machine_clock_rate / sample_rate - 1;
     static const size_t audio_buffer_size = sample_rate / 100;
     char audio_buffer[audio_buffer_size];
     clk_t audio_buffer_next_sample = 0;
@@ -276,7 +277,7 @@ struct SN76489A
     void generate_audio(clk_t clk, audio_flush_func audio_flush)
     {
 	clk_t current_audio_sample = previous_clock * sample_rate / clock_rate;
-        for(clk_t c = previous_clock + 1; c < clk; c += 5) {
+        for(clk_t c = previous_clock + 1; c < clk; c += max_audio_forward) {
 
             clk_t next_audio_sample = (c + 1) * sample_rate / clock_rate;
 
