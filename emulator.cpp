@@ -347,6 +347,9 @@ struct TMS9918A
     static const int VR6_SPRITE_PATTERN_MASK = 0x07;
     static const int VR6_SPRITE_PATTERN_SHIFT = 11;
 
+    static const int VR7_BD_MASK = 0x0F;
+    static const int VR7_BD_SHIFT = 0;
+
     static const int VDP_STATUS_INT_BIT = 0x80;
     static const int VDP_STATUS_COINC_BIT = 0x20;
 
@@ -445,6 +448,11 @@ struct TMS9918A
 
     bool get_color(int x, int y, unsigned char color[3])
     {
+	if((registers[1] & VR1_BLANK_MASK) == 0) {
+	    nybble_to_color((registers[7] & VR7_BD_MASK) >> VR7_BD_SHIFT, color);
+	    return false;
+	}
+
         bool bitmap_mode = (registers[0] & VR0_BITMAP_MASK);
         bool text_mode = (registers[1] & VR1_TEXT_MASK);
         bool multicolor_mode = (registers[1] & VR1_MULTIC_MASK);
@@ -489,8 +497,7 @@ struct TMS9918A
 
                 color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row) & address_mask;
 
-	    } else {
-
+	    } else { 
 		pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) | pattern_row;
 		color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row);
 	    }
@@ -540,13 +547,19 @@ struct TMS9918A
             bool size4 = registers[1] & VR1_SIZE4_MASK;
             bool had_pixel = false;
 
-            for(int i = 0; i < 32; i++) {
+	    int sprite_count = 32;
+	    for(int i = 0; i < 32; i++) {
                 unsigned char *sprite = memory + sprite_table_address + i * 4;
+                if(sprite[0] == 0xD0) {
+		    sprite_count = i;
+		    break;
+		}
+	    }
+
+            for(int i = 0; i < sprite_count; i++) {
+                unsigned char *sprite = memory + sprite_table_address + i * 4;
+
                 int sprite_y = sprite[0] + 1;
-
-                if(sprite[0] == 0xD0)
-                    break; // So says http://www.unige.ch/medecine/nouspikel/ti99/tms9918a.htm
-
                 int sprite_x = sprite[1];
                 int sprite_name = sprite[2];
                 bool sprite_earlyclock = sprite[3] & SPRITE_EARLY_CLOCK_MASK;
@@ -557,49 +570,56 @@ struct TMS9918A
                 if(sprite_earlyclock)
                     sprite_x -= 32;
 
-		for(int y = sprite_y; y < sprite_y + 16; y++) {
-		    for(int x = sprite_x; x < sprite_x + 16; x++) {
+		int size_pixels = 8;
+		if(mag2x)
+		    size_pixels *= 2;
+		if(size4)
+		    size_pixels *= 2;
+
+		int start_x = std::max(0, sprite_x);
+		int start_y = std::max(0, sprite_y);
+		int end_x = std::min(sprite_x + size_pixels, SCREEN_X) - 1;
+		int end_y = std::min(sprite_y + size_pixels, SCREEN_Y) - 1;
+
+		for(int y = start_y; y <= end_y; y++) {
+		    for(int x = start_x; x <= end_x; x++) {
 			unsigned char color[3];
 			unsigned char *pixel = image + (y * SCREEN_X + x) * 4;
 			for(int c = 0; c < 3; c++)
 			    color[c] = pixel[c];
 
-			if(x >= sprite_x && y >= sprite_y) {
-			    int within_sprite_x, within_sprite_y;
+			int within_sprite_x, within_sprite_y;
 
-			    if(mag2x) {
-				within_sprite_x = (x - sprite_x) / 2;
-				within_sprite_y = (y - sprite_y) / 2;
-			    } else {
-				within_sprite_x = x - sprite_x;
-				within_sprite_y = y - sprite_y;
+			if(mag2x) {
+			    within_sprite_x = (x - sprite_x) / 2;
+			    within_sprite_y = (y - sprite_y) / 2;
+			} else {
+			    within_sprite_x = x - sprite_x;
+			    within_sprite_y = y - sprite_y;
+			}
+
+			if(size4) {
+
+			    int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
+			    int within_quadrant_y = within_sprite_y % 8;
+			    int within_quadrant_x = within_sprite_x % 8;
+			    int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
+			    int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
+			    int bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
+			    if(bit) {
+				sprite_int = had_pixel;
+				nybble_to_color(sprite_color, color);
+				had_pixel = true;
 			    }
 
-			    if(size4) {
-				if((within_sprite_x < 16) && (within_sprite_y < 16)) {
+			} else {
 
-				    int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
-				    int within_quadrant_y = within_sprite_y % 8;
-				    int within_quadrant_x = within_sprite_x % 8;
-				    int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
-				    int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
-				    int bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
-				    if(bit) {
-					sprite_int = had_pixel;
-					nybble_to_color(sprite_color, color);
-					had_pixel = true;
-				    }
-				}
-
-			    } else if((within_sprite_x < 8) && (within_sprite_y < 8)) {
-
-				int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
-				int bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
-				if(bit) {
-				    sprite_int = had_pixel;
-				    nybble_to_color(sprite_color, color);
-				    had_pixel = true;
-				}
+			    int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
+			    int bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
+			    if(bit) {
+				sprite_int = had_pixel;
+				nybble_to_color(sprite_color, color);
+				had_pixel = true;
 			    }
 			}
 			for(int c = 0; c < 3; c++)
