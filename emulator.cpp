@@ -531,7 +531,10 @@ struct TMS9918A
 
     void perform_scanout(unsigned char image[SCREEN_X * SCREEN_Y * 4])
     {
+        static unsigned char previous_sprite_bits[SCREEN_Y][SCREEN_X];
+
 	bool sprites_valid;
+
         for(int row = 0; row < SCREEN_Y; row++) {
             for(int col = 0; col < SCREEN_X; col++) {
                 unsigned char color[3];
@@ -541,11 +544,11 @@ struct TMS9918A
                     pixel[c] = color[c];
             }
         }
+
         if(sprites_valid) {
             int sprite_table_address = (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
             bool mag2x = registers[1] & VR1_MAG2X_MASK;
             bool size4 = registers[1] & VR1_SIZE4_MASK;
-            bool had_pixel = false;
 
 	    int sprite_count = 32;
 	    for(int i = 0; i < 32; i++) {
@@ -555,6 +558,8 @@ struct TMS9918A
 		    break;
 		}
 	    }
+
+            memset(previous_sprite_bits, 0, SCREEN_X * SCREEN_Y);
 
             for(int i = 0; i < sprite_count; i++) {
                 unsigned char *sprite = memory + sprite_table_address + i * 4;
@@ -607,9 +612,9 @@ struct TMS9918A
 			    int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
 			    int bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
 			    if(bit) {
-				sprite_int = had_pixel;
+				sprite_int = sprite_int | (previous_sprite_bits[y][x] != 0);
 				nybble_to_color(sprite_color, color);
-				had_pixel = true;
+                                previous_sprite_bits[y][x] = 0xFF;
 			    }
 
 			} else {
@@ -617,9 +622,9 @@ struct TMS9918A
 			    int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
 			    int bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
 			    if(bit) {
-				sprite_int = had_pixel;
+				sprite_int = sprite_int | (previous_sprite_bits[y][x] != 0);
 				nybble_to_color(sprite_color, color);
-				had_pixel = true;
+                                previous_sprite_bits[y][x] = 0xFF;
 			    }
 			}
 			for(int c = 0; c < 3; c++)
@@ -674,17 +679,25 @@ struct ColecoHW : board_base
             // return true;
         // }
 
-        if(addr == ColecoHW::VDP_CMD_PORT) {
-            vdp.write(1, data);
-            return true;
+        if(false) {
+            if(addr == ColecoHW::VDP_CMD_PORT) {
+                vdp.write(1, data);
+                return true;
+            }
+
+            if(addr == ColecoHW::VDP_DATA_PORT) {
+                vdp.write(0, data);
+                return true;
+            }
+        } else {
+            if((addr >= 0xA0) && (addr <= 0xBF)) {
+                vdp.write(addr & 0x1, data);
+                return true;
+            }
         }
 
-        if(addr == ColecoHW::VDP_DATA_PORT) {
-            vdp.write(0, data);
-            return true;
-        }
-
-        if(addr == ColecoHW::SN76489A_PORT) {
+        /* if(addr == ColecoHW::SN76489A_PORT) { */
+        if((addr >= 0xE0) && (addr <= 0xFF)) {
             if(debug) printf("audio write 0x%02X\n", data);
             sound.write(data);
             return true;
@@ -707,20 +720,28 @@ struct ColecoHW : board_base
 
     virtual bool io_read(int addr, unsigned char &data)
     {
-        if(addr == ColecoHW::VDP_CMD_PORT) {
-            if(debug) printf("read VDP command port\n");
-            data = vdp.read(1);
-            return true;
+        if(false) {
+            if(addr == ColecoHW::VDP_CMD_PORT) {
+                if(debug) printf("read VDP command port\n");
+                data = vdp.read(1);
+                return true;
+            }
+
+            if(addr == ColecoHW::VDP_DATA_PORT) {
+                if(debug) printf("read VDP command port\n");
+                data = vdp.read(0);
+                return true;
+            }
+        } else {
+            if((addr >= 0xA0) && (addr <= 0xBF)) {
+                data = vdp.read(addr & 0x1);
+                return true;
+            }
         }
 
-        if(addr == ColecoHW::VDP_DATA_PORT) {
-            if(debug) printf("read VDP command port\n");
-            data = vdp.read(0);
-            return true;
-        }
 
-
-        if(addr == ColecoHW::CONTROLLER1_PORT) {
+        /* if(addr == ColecoHW::CONTROLLER1_PORT) { */
+        if((addr >= 0xE0) && (addr <= 0xFF) && ((addr & 0x02) == 0x0)) {
             if(debug) printf("read controller1 port\n");
             if(reading_joystick)
                 data = (~user_flags & 0xFF);
@@ -729,7 +750,8 @@ struct ColecoHW : board_base
             return true;
         }
 
-        if(addr == ColecoHW::CONTROLLER2_PORT) {
+        /* if(addr == ColecoHW::CONTROLLER2_PORT) { */
+        if((addr >= 0xE0) && (addr <= 0xFF) && ((addr & 0x02) == 0x2)) {
             if(debug) printf("read controller2 port\n");
             if(reading_joystick)
                 data = ((~user_flags >> 16) & 0xFF);
@@ -1889,8 +1911,14 @@ static void error_callback(int error, const char* description)
 
 static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
+    static bool shift_pressed = false;
+
     if(action == GLFW_PRESS || action == GLFW_REPEAT ) {
         switch(key) {
+            case GLFW_KEY_RIGHT_SHIFT:
+            case GLFW_KEY_LEFT_SHIFT:
+                shift_pressed = true;
+                break;
             case GLFW_KEY_W:
                 user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT) | CONTROLLER1_NORTH_BIT;
                 break;
@@ -1919,7 +1947,11 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
                 user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_2;
                 break;
             case GLFW_KEY_3:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_3;
+                if(shift_pressed) {
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_pound;
+                } else {
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_3;
+                }
                 break;
             case GLFW_KEY_4:
                 user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_4;
@@ -1934,24 +1966,24 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
                 user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_7;
                 break;
             case GLFW_KEY_8:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_8;
+                if(shift_pressed) {
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_asterisk;
+                } else {
+                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_8;
+                }
                 break;
             case GLFW_KEY_9:
                 user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_9;
                 break;
-                /* 
-                TODO these are shift
-            case GLFW_KEY_asterisk:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_asterisk;
-                break;
-            case GLFW_KEY_numbersign:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_pound;
-                break; */
         }
     } else if(action == GLFW_RELEASE) {
         switch(key) {
             case GLFW_KEY_R:
                 Z80Reset(&z80state);
+                break;
+            case GLFW_KEY_RIGHT_SHIFT:
+            case GLFW_KEY_LEFT_SHIFT:
+                shift_pressed = false;
                 break;
             case GLFW_KEY_W:
                 user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT);
@@ -2001,14 +2033,6 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
             case GLFW_KEY_9:
                 user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
                 break;
-                /* TODO these are shift 
-            case GLFW_KEY_asterisk:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-            case GLFW_KEY_numbersign:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
-                break;
-                */
         }
     }
 }
