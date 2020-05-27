@@ -13,8 +13,8 @@
 void CheckOpenGL(const char *filename, int line)
 {
     int glerr;
-    bool stored_exit_flag = false;
-    bool exit_on_error;
+    static bool stored_exit_flag = false;
+    static bool exit_on_error;
 
     if(!stored_exit_flag) {
         exit_on_error = getenv("EXIT_ON_OPENGL_ERROR") != NULL;
@@ -81,25 +81,31 @@ bool gPrintShaderLog = true;
 bool CheckShaderCompile(GLuint shader, const std::string& shader_name)
 {
     int status;
+    CheckOpenGL(__FILE__, __LINE__);
     glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+    CheckOpenGL(__FILE__, __LINE__);
     if(status == GL_TRUE)
 	return true;
 
     if(gPrintShaderLog) {
         int length;
         glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
+        CheckOpenGL(__FILE__, __LINE__);
 
         if (length > 0) {
             char log[length];
             glGetShaderInfoLog(shader, length, NULL, log);
+            CheckOpenGL(__FILE__, __LINE__);
             fprintf(stderr, "%s shader error log:\n%s\n", shader_name.c_str(), log);
         }
 
         fprintf(stderr, "%s compile failure.\n", shader_name.c_str());
         fprintf(stderr, "shader text:\n");
         glGetShaderiv(shader, GL_SHADER_SOURCE_LENGTH, &length);
+        CheckOpenGL(__FILE__, __LINE__);
         char source[length];
         glGetShaderSource(shader, length, NULL, source);
+        CheckOpenGL(__FILE__, __LINE__);
         fprintf(stderr, "%s\n", source);
     }
     return false;
@@ -159,16 +165,22 @@ GLuint GenerateProgram(const std::string& shader_name, const std::string& vertex
     std::string fragment_shader_string = spec_string + fragment_shader_text;
 
     GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+    CheckOpenGL(__FILE__, __LINE__);
     const char *string = vertex_shader_string.c_str();
     glShaderSource(vertex_shader, 1, &string, NULL);
+    CheckOpenGL(__FILE__, __LINE__);
     glCompileShader(vertex_shader);
+    CheckOpenGL(__FILE__, __LINE__);
     if(!CheckShaderCompile(vertex_shader, shader_name + " vertex shader"))
 	return 0;
 
     GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+    CheckOpenGL(__FILE__, __LINE__);
     string = fragment_shader_string.c_str();
     glShaderSource(fragment_shader, 1, &string, NULL);
+    CheckOpenGL(__FILE__, __LINE__);
     glCompileShader(fragment_shader);
+    CheckOpenGL(__FILE__, __LINE__);
     if(!CheckShaderCompile(fragment_shader, shader_name + " fragment shader"))
 	return 0;
     CheckOpenGL(__FILE__, __LINE__);
