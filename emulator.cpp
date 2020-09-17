@@ -489,13 +489,13 @@ struct TMS9918A
 
             int third = (row / 8) << THIRD_SHIFT;
 
-	    if(false) {
+	    if(true) {
 
 		int address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
 
-		pattern_address = ((((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask) | pattern_row;
+		pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
 
-                color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row) & address_mask;
+                color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
 
 	    } else { 
 		pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) | pattern_row;
@@ -561,7 +561,7 @@ struct TMS9918A
 
             memset(previous_sprite_bits, 0, SCREEN_X * SCREEN_Y);
 
-            for(int i = 0; i < sprite_count; i++) {
+            for(int i = sprite_count - 1; i >= 0; i--) {
                 unsigned char *sprite = memory + sprite_table_address + i * 4;
 
                 int sprite_y = sprite[0] + 1;
@@ -1853,6 +1853,7 @@ void initialize_gl(void)
     GLuint va;
     glGenVertexArrays(1, &va);
     glBindVertexArray(va);
+    CheckOpenGL(__FILE__, __LINE__);
 
     image_program = GenerateProgram("image", hires_vertex_shader, image_fragment_shader);
     assert(image_program != 0);
