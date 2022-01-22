@@ -1,0 +1,49 @@
+No known issues or very minor issues
+    Q-bert
+    Donkey Kong
+    Donkey Kong Jr.
+    Zaxxon
+    Smurf
+    Mr. Do!
+    Roc 'N Rope
+    Burgertime 1983 prototype
+    Burgertime
+    Choplifter!
+    Moon Patrol [Prototype A1]
+    Spy Hunter Prototype
+    Spy Hunter
+    Popeye
+        strange high-pitched whistle when there seems like there should be a rest between notes during play
+    Pitfall II - Lost Caverns
+        a little chirping during soundtrack - am I not doing silencing correctly?
+    Super Cross Force
+        there's no animation during explosion - is that normal?
+    Beamrider
+        stars show up after dying - is that normal?
+
+Works with minor issues
+    Jungle Hunt
+        incorrect rendering of vines
+        lots of garbage on swimming screen - wrong 8x8s fetched, wrong sprites?
+    Pitfall!
+        couple corrupted sprites on screens 2 and later - sprites not being cleared?
+
+Known serious issues preventing game play
+    Frogger - hangs at initial screen with one note playing continuously - doesn't detect VBLANK / VDP?
+    Defender - hangs at "press N for N player game"; reading controller differently?
+    Slither - no controls; reading the controller differently?  Controller 2?
+    Dig Dug - never detects game selection; reading controller differently?
+    Miner 2049er - seg fault
+
+Unknown
+    Super Action Controller Test Cartridge (1983) (Nuvatec).rom
+
+
+Maybe 2 or 3 bugs:
+    * controller read issues, e.g. Defender, Dig Dug, Slither
+    * rendering at least one video mode incorrectly, e.g. Jungle Hunt, Pitfall
+    * some kind of failure to read interrupt, e.g. Frogger
+
+need to line up VDP interrupt and scanout more correctly - I think this is what's causing corruption in Jungle Hunt swimming - do scanout to texture every 16.67ms of simulation time
+
+make different scanout code for different modes & then sprite code
