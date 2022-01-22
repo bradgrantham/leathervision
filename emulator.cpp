@@ -1740,8 +1740,8 @@ const int CONTROLLER1_KEYPAD_6 = 0x0100;
 const int CONTROLLER1_KEYPAD_7 = 0x0A00;
 const int CONTROLLER1_KEYPAD_8 = 0x0E00;
 const int CONTROLLER1_KEYPAD_9 = 0x0400;
-const int CONTROLLER1_KEYPAD_asterisk = 0x0900;
-const int CONTROLLER1_KEYPAD_pound = 0x0600;
+const int CONTROLLER1_KEYPAD_asterisk = 0x0600;
+const int CONTROLLER1_KEYPAD_pound = 0x0900;
 
 ao_device *open_ao()
 {
@@ -1907,8 +1907,6 @@ static void error_callback(int error, const char* description)
 {
     fprintf(stderr, "GLFW: %s\n", description);
 }
-
-
 
 static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
