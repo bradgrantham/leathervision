@@ -306,10 +306,12 @@ void Z80_INPUT_BYTE(ADDR port, DATA& x)
     /* last one wins. */
     unsigned char b = 0x00;
     bool accepted = false;
-    for(auto it = boards.begin(); it != boards.end(); it++)
+    for(auto it = boards.begin(); it != boards.end(); it++) {
         accepted |= (*it)->io_read(port & 0xff, b);
-    if(!accepted)
+    }
+    if(!accepted) {
         printf("IN %d (0x%02X) was not handled!\n", port, port);
+    }
     x = b;
 }
 
