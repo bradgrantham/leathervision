@@ -119,8 +119,8 @@ unsigned char scale_by_attenuation_flags(unsigned int att, unsigned char value)
 
 struct SN76489A
 {
-    bool debug = false;
-    unsigned int clock_rate;
+    bool debug{false};
+    unsigned int clock_rate{0};
 
     int phase = 0;
 
@@ -135,22 +135,22 @@ struct SN76489A
     static const int CMD_NOISE_CONFIG_SHIFT = 2;
     static const int CMD_NOISE_FREQ_MASK = 0x03;
 
-    unsigned int tone_lengths[3];
+    unsigned int tone_lengths[3] = {0, 0, 0};
     unsigned int tone_attenuation[3] = {0, 0, 0};
 
-    unsigned int noise_config;
-    unsigned int noise_length;
-    unsigned int noise_length_id;
-    unsigned int noise_attenuation;
+    unsigned int noise_config{0};
+    unsigned int noise_length{0};
+    unsigned int noise_length_id{0};
+    unsigned int noise_attenuation{0};
 
-    unsigned int tone_counters[3];
-    unsigned int tone_bit[3];
-    unsigned int noise_counter;
+    unsigned int tone_counters[3] = {0, 0, 0};
+    unsigned int tone_bit[3] = {0, 0, 0};
+    unsigned int noise_counter{0};
 
     uint16_t noise_register = 0x8000;
     unsigned int noise_flipflop = 0;
 
-    clk_t previous_clock;
+    clk_t previous_clock{0};
 
     SN76489A(unsigned int clock_rate_) :
         clock_rate(clock_rate_)
@@ -179,12 +179,13 @@ struct SN76489A
             } else if(reg == 6) {
                 noise_config = (data & CMD_NOISE_CONFIG_MASK) >> CMD_NOISE_CONFIG_SHIFT;
                 noise_length_id = data & CMD_NOISE_FREQ_MASK;
-                if(noise_length_id == 0)
+                if(noise_length_id == 0) {
                     noise_length = 512;
-                else if(noise_length_id == 1)
+                } else if(noise_length_id == 1) {
                     noise_length = 1024;
-                else if(noise_length_id == 2)
+                } else if(noise_length_id == 2) {
                     noise_length = 2048;
+                }
                 /* if noise_length_id == 3 then noise counter is tone_counters[2]*/
 
                 noise_register = 0x8000;
@@ -204,8 +205,9 @@ struct SN76489A
 
     clk_t calc_flip_count(clk_t previous_clock, clk_t current_clock, unsigned int previous_counter, unsigned int length)
     {
-        if(length < 1)
+        if(length < 1) { 
             return 0;
+        }
         clk_t clocks = current_clock - previous_clock;
         clk_t flips = (previous_counter + clocks) / length;
         return flips;
@@ -220,10 +222,11 @@ struct SN76489A
                 int noise_bit = noise_register & 0x1;
                 int new_bit;
 
-                if(noise_config == 1)
+                if(noise_config == 1) {
                     new_bit = (noise_register & 0x1) ^ ((noise_register & 0x8) >> 3);
-                else
+                } else {
                     new_bit = noise_bit;
+                }
 
                 noise_register = (noise_register >> 1) | (new_bit << 15);
             }
@@ -239,19 +242,22 @@ struct SN76489A
         }
 
         int flips;
-        if(noise_length_id == 3)
+        if(noise_length_id == 3)  {
             flips = tone_flips[2];
-        else
+        } else {
             flips = calc_flip_count(previous_clock, clk, noise_counter, noise_length);
+        }
         advance_noise_to_clock(flips);
 
         for(int i = 0; i < 3; i++) {
             tone_bit[i] = tone_bit[i] ^ (tone_flips[i] & 0x1);
-            if(tone_lengths[i] > 0)
+            if(tone_lengths[i] > 0) {
                 tone_counters[i] = (tone_counters[i] + (clk - previous_clock)) % tone_lengths[i];
+            }
         }
-        if(noise_length > 0)
+        if(noise_length > 0) {
             noise_counter = (noise_counter + (clk - previous_clock)) % noise_length;
+        }
 
         previous_clock = clk;
     }
@@ -572,14 +578,18 @@ struct TMS9918A
 
                 // printf("sprite %d: %d %d %d %d\n", i, sprite_x, sprite_y, sprite_name, sprite_color);
 
-                if(sprite_earlyclock)
+                if(sprite_earlyclock) {
                     sprite_x -= 32;
+                }
 
 		int size_pixels = 8;
-		if(mag2x)
+		if(mag2x) {
 		    size_pixels *= 2;
-		if(size4)
+                }
+
+		if(size4) {
 		    size_pixels *= 2;
+                }
 
 		int start_x = std::max(0, sprite_x);
 		int start_y = std::max(0, sprite_y);
@@ -590,8 +600,9 @@ struct TMS9918A
 		    for(int x = start_x; x <= end_x; x++) {
 			unsigned char color[3];
 			unsigned char *pixel = image + (y * SCREEN_X + x) * 4;
-			for(int c = 0; c < 3; c++)
+			for(int c = 0; c < 3; c++) {
 			    color[c] = pixel[c];
+                        }
 
 			int within_sprite_x, within_sprite_y;
 
@@ -743,20 +754,22 @@ struct ColecoHW : board_base
         /* if(addr == ColecoHW::CONTROLLER1_PORT) { */
         if((addr >= 0xE0) && (addr <= 0xFF) && ((addr & 0x02) == 0x0)) {
             if(debug) printf("read controller1 port\n");
-            if(reading_joystick)
-                data = (~user_flags & 0xFF);
-            else
+            if(reading_joystick) {
+                data = ((~user_flags >> 0) & 0xFF);
+            } else {
                 data = ((~user_flags >> 8) & 0xFF);
+            }
             return true;
         }
 
         /* if(addr == ColecoHW::CONTROLLER2_PORT) { */
         if((addr >= 0xE0) && (addr <= 0xFF) && ((addr & 0x02) == 0x2)) {
             if(debug) printf("read controller2 port\n");
-            if(reading_joystick)
+            if(reading_joystick) {
                 data = ((~user_flags >> 16) & 0xFF);
-            else
+            } else {
                 data = ((~user_flags >> 24) & 0xFF);
+            }
             return true;
         }
 
@@ -858,6 +871,8 @@ void print_state(Z80_STATE* state)
         state->pc);
 }
 
+#ifdef PROVIDE_DEBUGGER
+
 struct BreakPoint
 {
     enum Type {INSTRUCTION, DATA} type;
@@ -938,8 +953,9 @@ struct Debugger
             address--;
             offset++;
         }
-        if(address < 0)
+        if(address < 0) {
             return no_symbol;
+        }
         return address_to_symbol[address];
     }
     bool load_symbols(char *filename)
@@ -956,8 +972,9 @@ struct Debugger
         fread(buffer, size, 1, fp);
         fclose(fp);
         char *symbol_part = buffer;
-        while((symbol_part - buffer) < size && (*symbol_part != ''))
+        while((symbol_part - buffer) < size && (*symbol_part != '')) {
             symbol_part++;
+        }
         if(symbol_part - buffer >= size) {
             fprintf(stderr, "couldn't find symbol section in %s\n", filename);
             delete[] buffer;
@@ -1015,8 +1032,9 @@ int disassemble(int address, Debugger *d, int bytecount)
         std::string& sym = d->get_symbol(address, symbol_offset);
 
         bg80d::opcode_spec_t *opcode = bg80d::decode(reader, &address, address);
-        if(opcode == 0)
+        if(opcode == 0) {
             break;
+        }
 
         printf("%04X %s+0x%04X%*s", address_was, sym.c_str(), symbol_offset, 16 - (int)sym.size() - 5, "");
 
@@ -1049,8 +1067,9 @@ int disassemble(int address, Debugger *d, int bytecount)
 
 void disassemble_instructions(int address, Debugger *d, int insncount)
 {
-    for(int i = 0; i < insncount; i++)
+    for(int i = 0; i < insncount; i++) {
 	address += disassemble(address, d, 1);
+    }
 }
 
 
@@ -1179,8 +1198,9 @@ bool debugger_dis(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* stat
     char *endptr;
 
     int address;
-    if(!lookup_or_parse(d->symbol_to_address, argv[1], address))
+    if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
+    }
 
     int count = strtol(argv[2], &endptr, 0);
     if(*endptr != '\0') {
@@ -1200,8 +1220,9 @@ bool debugger_dump(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
     char *endptr;
 
     int address;
-    if(!lookup_or_parse(d->symbol_to_address, argv[1], address))
+    if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
+    }
 
     int length = strtol(argv[2], &endptr, 0);
     if(*endptr != '\0') {
@@ -1209,8 +1230,9 @@ bool debugger_dump(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
         return false;
     }
     static unsigned char buffer[65536];
-    for(int i = 0; i < length; i++)
+    for(int i = 0; i < length; i++) {
         Z80_READ_BYTE(address + i, buffer[i]);
+    }
     dump_buffer_hex(4, address, buffer, length);
     return false;
 }
@@ -1234,8 +1256,9 @@ bool debugger_fill(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
     char *endptr;
 
     int address;
-    if(!lookup_or_parse(d->symbol_to_address, argv[1], address))
+    if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
+    }
 
     int length = strtol(argv[2], &endptr, 0);
     if(*endptr != '\0') {
@@ -1248,8 +1271,9 @@ bool debugger_fill(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
         return false;
     }
     printf("fill %d for %d with %d\n", address, length, value);
-    for(int i = 0; i < length; i++)
+    for(int i = 0; i < length; i++) {
         Z80_WRITE_BYTE(address + i, value);
+    }
     return false;
 }
 
@@ -1279,7 +1303,7 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     VDP->perform_scanout(framebuffer);
     std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
     std::chrono::duration<double> elapsed = now - start_time;
-    if(0) printf("dump time %f seconds\n", elapsed.count());
+    if(false) printf("dump time %f seconds\n", elapsed.count());
     write_image(framebuffer, fp);
     fclose(fp);
 
@@ -1398,8 +1422,9 @@ bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
                 disassemble(state->pc, d, 1);
             }
         }
-        if(d->should_debug(boards, state))
+        if(d->should_debug(boards, state)) {
             break;
+        }
     }
     printf("%llu actual cycles emulated\n", clk);
     d->state_may_have_changed = true;
@@ -1414,8 +1439,9 @@ bool debugger_jump(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
         return false;
     }
 
-    if(!lookup_or_parse(d->symbol_to_address, argv[1], state->pc))
+    if(!lookup_or_parse(d->symbol_to_address, argv[1], state->pc)) {
         return false;
+    }
 
     char *endptr;
     state->pc = strtol(argv[1], &endptr, 0);
@@ -1459,8 +1485,9 @@ bool debugger_break(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     }
 
     int address;
-    if(!lookup_or_parse(d->symbol_to_address, argv[1], address))
+    if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
+    }
 
     d->breakpoints.push_back(BreakPoint(address));
     return false;
@@ -1474,8 +1501,9 @@ bool debugger_watch(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     }
 
     int address;
-    if(!lookup_or_parse(d->symbol_to_address, argv[1], address))
+    if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
+    }
 
     unsigned char old_value;
     Z80_READ_BYTE(address, old_value);
@@ -1597,17 +1625,21 @@ bool Debugger::process_command(std::vector<board_base*>& boards, Z80_STATE* stat
     // process commands
     char **ap, *argv[10];
 
-    for (ap = argv; (*ap = strsep(&command, " \t")) != NULL;)
-        if (**ap != '\0')
-            if (++ap >= &argv[10])
+    for (ap = argv; (*ap = strsep(&command, " \t")) != NULL;) {
+        if (**ap != '\0') {
+            if (++ap >= &argv[10]) {
                 break;
+            }
+        }
+    }
     int argc = ap - argv;
 
     if(argc == 0) {
-        if(last_was_step)
+        if(last_was_step) {
             return debugger_step(this, boards, state, argc, argv);
-        else
+        } else {
             return false;
+        }
     }
 
     last_was_step = false;
@@ -1626,8 +1658,9 @@ bool Debugger::process_line(std::vector<board_base*>& boards, Z80_STATE* state, 
 
     while((command = strsep(&line, ";")) != NULL) {
         bool run = process_command(boards, state, command);
-        if(run)
+        if(run) {
             return true;
+        }
     }
     return false;
 }
@@ -1650,8 +1683,9 @@ void mark_enter_debugger(int signal)
 void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80_STATE* state)
 {
     signal(SIGINT, previous_sigint);
-    for(auto b = boards.begin(); b != boards.end(); b++)
+    for(auto b = boards.begin(); b != boards.end(); b++) {
         (*b)->pause();
+    }
 
     if(!feof(fp)) {
         bool run = false;
@@ -1685,30 +1719,36 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80_STATE* state)
                     quit = true;
                     run = true;
                 } else {
-                    if(strlen(line) > 0)
+                    if(strlen(line) > 0) {
                         add_history(line);
+                    }
                     run = process_line(boards, state, line);
                     free(line);
                 }
             } else {
                 char line[512];
-                if(fgets(line, sizeof(line), fp) == NULL)
+                if(fgets(line, sizeof(line), fp) == NULL) {
                     break;
+                }
                 line[strlen(line) - 1] = '\0';
                 run = process_line(boards, state, line);
             }
-            for(auto b = boards.begin(); b != boards.end(); b++) 
+            for(auto b = boards.begin(); b != boards.end(); b++)  {
                 (*b)->idle();
+            }
 
         } while(!run);
     }
 
-    for(auto b = boards.begin(); b != boards.end(); b++) 
+    for(auto b = boards.begin(); b != boards.end(); b++)  {
         (*b)->resume();
+    }
 
     previous_sigint = signal(SIGINT, mark_enter_debugger);
     state_may_have_changed = true;
 }
+
+#endif
 
 void usage(char *progname)
 {
@@ -2127,13 +2167,15 @@ void iterate_ui()
     glfwSwapBuffers(my_window);
     CheckOpenGL(__FILE__, __LINE__);
 
-    if(0)
+    if(false) {
         for(int i = 0; i < 16; i++) {
-            if(glfwJoystickPresent(GLFW_JOYSTICK_1 + i))
+            if(glfwJoystickPresent(GLFW_JOYSTICK_1 + i)) {
                 printf("JOYSTICK_%d present\n", 1 + i);
-            else
+            } else {
                 printf("JOYSTICK_%d not present\n", 1 + i);
+            }
         }
+    }
 
     if(glfwJoystickPresent(GLFW_JOYSTICK_1)) {
         if(false) printf("joystick 1 present\n");
@@ -2141,8 +2183,10 @@ void iterate_ui()
         int button_count;
         const unsigned char* buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &button_count);
 
-        if(false)for(int i = 0; i < button_count; i++)
-            printf("Button %d: %s\n", i, (buttons[i] == GLFW_PRESS) ? "pressed" : "not pressed");
+        if(false)
+            for(int i = 0; i < button_count; i++) {
+                printf("Button %d: %s\n", i, (buttons[i] == GLFW_PRESS) ? "pressed" : "not pressed");
+            }
 
         if(
             button_count <= joystick_button_north &&
@@ -2205,8 +2249,9 @@ void initialize_ui()
 
     glfwSetErrorCallback(error_callback);
 
-    if(!glfwInit())
+    if(!glfwInit()) {
         exit(EXIT_FAILURE);
+    }
 
     // glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     // glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
@@ -2308,10 +2353,12 @@ void cvhat_read_controllers()
 
 int main(int argc, char **argv)
 {
+#ifdef PROVIDE_DEBUGGER
     Debugger *debugger = NULL;
     char *debugger_argument = NULL;
 
     populate_command_handlers();
+#endif
 
     char *progname = argv[0];
     argc -= 1;
@@ -2325,6 +2372,7 @@ int main(int argc, char **argv)
          {
              usage(progname);
              exit(EXIT_SUCCESS);
+#ifdef PROVIDE_DEBUGGER
 	} else if(strcmp(argv[0], "-debugger") == 0) {
             if(argc < 2) {
                 fprintf(stderr, "-debugger requires initial commands (can be empty, e.g. \"\"\n");
@@ -2335,6 +2383,7 @@ int main(int argc, char **argv)
             debugger_argument = argv[1];
 	    argc -= 2;
 	    argv += 2;
+#endif
 	} else {
 	    fprintf(stderr, "unknown parameter \"%s\"\n", argv[0]);
             usage(progname);
@@ -2409,10 +2458,12 @@ int main(int argc, char **argv)
 
     Z80Reset(&z80state);
 
+#ifdef PROVIDE_DEBUGGER
     if(debugger) {
         enter_debugger = true;
         debugger->process_line(boards, &z80state, debugger_argument);
     }
+#endif
 
     std::chrono::time_point<std::chrono::system_clock> then = std::chrono::system_clock::now();
 
@@ -2421,11 +2472,15 @@ int main(int argc, char **argv)
     {
         clk_t clocks_per_slice = micros_per_slice * machine_clock_rate / 1000000;
 
+#ifdef PROVIDE_DEBUGGER
         if(debugger && (enter_debugger || debugger->should_debug(boards, &z80state))) {
             debugger->go(stdin, boards, &z80state);
             enter_debugger = false;
-        } else {
+        } else
+#endif
+        {
             std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
+#ifdef PROVIDE_DEBUGGER
             if(debugger) {
                 clk_t cycles = 0;
                 do {
@@ -2436,7 +2491,9 @@ int main(int argc, char **argv)
                     }
                 } while(cycles < clocks_per_slice);
                 clk += cycles;
-            } else {
+            } else
+#endif
+            {
                 clk_t cycles = 0;
 		cycles += Z80Emulate(&z80state, clocks_per_slice);
                 while(cycles < clocks_per_slice) {
@@ -2459,7 +2516,8 @@ int main(int argc, char **argv)
             auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
             if(!run_fast || pause_cpu) {
                 // std::this_thread::sleep_for(std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate) - elapsed_micros);
-                if(profiling) printf("elapsed %lld, sleep %lld\n", elapsed_micros.count(), std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate) - elapsed_micros);
+                auto remaining_in_slice = std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate) - elapsed_micros;
+                if(profiling) printf("elapsed %lld, sleep %lld\n", elapsed_micros.count(), remaining_in_slice.count());
                 // printf("%f%%\n", 100.0 - elapsed_micros.count() * 100.0 / std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate).count());
             }
 
@@ -2478,8 +2536,9 @@ int main(int argc, char **argv)
             }
         }
 
-        if(coleco->nmi_requested())
+        if(coleco->nmi_requested()) {
             Z80NonMaskableInterrupt (&z80state);
+        }
 
 	std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
 	auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
