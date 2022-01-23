@@ -43,7 +43,7 @@
 constexpr unsigned int DEBUG_ROM = 0x01;
 constexpr unsigned int DEBUG_RAM = 0x02;
 constexpr unsigned int DEBUG_IO = 0x04;
-unsigned int debug = DEBUG_IO;
+unsigned int debug = 0; // DEBUG_IO;
 const bool break_on_unknown_address = true;
 const bool profiling = false;
 
@@ -696,16 +696,25 @@ struct ColecoHW : board_base
         if(false) {
             if(addr == ColecoHW::VDP_CMD_PORT) {
                 vdp.write(1, data);
+#ifdef PROVIDE_DEBUGGER
+                io_writes.insert({addr, data});
+#endif
                 return true;
             }
 
             if(addr == ColecoHW::VDP_DATA_PORT) {
                 vdp.write(0, data);
+#ifdef PROVIDE_DEBUGGER
+                io_writes.insert({addr, data});
+#endif
                 return true;
             }
         } else {
             if((addr >= 0xA0) && (addr <= 0xBF)) {
                 vdp.write(addr & 0x1, data);
+#ifdef PROVIDE_DEBUGGER
+                io_writes.insert({addr, data});
+#endif
                 return true;
             }
         }
@@ -714,18 +723,27 @@ struct ColecoHW : board_base
         if((addr >= 0xE0) && (addr <= 0xFF)) {
             if(debug & DEBUG_IO) printf("audio write 0x%02X\n", data);
             sound.write(data);
+#ifdef PROVIDE_DEBUGGER
+            io_writes.insert({addr, data});
+#endif
             return true;
         }
 
         if(addr == ColecoHW::SWITCH_TO_KEYPAD_PORT) {
             if(debug & DEBUG_IO) printf("switch to keypad\n");
             reading_joystick = false;
+#ifdef PROVIDE_DEBUGGER
+            io_writes.insert({addr, data});
+#endif
             return true;
         }
 
         if(addr == ColecoHW::SWITCH_TO_JOYSTICK_PORT) {
             if(debug & DEBUG_IO) printf("switch to keypad\n");
             reading_joystick = true;
+#ifdef PROVIDE_DEBUGGER
+            io_writes.insert({addr, data});
+#endif
             return true;
         }
 
@@ -738,18 +756,27 @@ struct ColecoHW : board_base
             if(addr == ColecoHW::VDP_CMD_PORT) {
                 if(debug & DEBUG_IO) printf("read VDP command port\n");
                 data = vdp.read(1);
+#ifdef PROVIDE_DEBUGGER
+                io_reads.insert(addr);
+#endif
                 return true;
             }
 
             if(addr == ColecoHW::VDP_DATA_PORT) {
                 if(debug & DEBUG_IO) printf("read VDP command port\n");
                 data = vdp.read(0);
+#ifdef PROVIDE_DEBUGGER
+                io_reads.insert(addr);
+#endif
                 return true;
             }
         } else {
             if((addr >= 0xA0) && (addr <= 0xBF)) {
                 if(debug & DEBUG_IO) printf("read VDP 0x%02X\n", addr);
                 data = vdp.read(addr & 0x1);
+#ifdef PROVIDE_DEBUGGER
+                io_reads.insert(addr);
+#endif
                 return true;
             }
         }
@@ -762,7 +789,10 @@ struct ColecoHW : board_base
             } else {
                 data = ((~user_flags >> 8) & 0xFF) & 0x7F;
             }
-            if(debug & DEBUG_IO) printf("read controller1 port, read 0x%02X\n", data);
+            if(debug & DEBUG_IO) printf("read controller1 port 0x%02X, read 0x%02X\n", addr, data);
+#ifdef PROVIDE_DEBUGGER
+            io_reads.insert(addr);
+#endif
             return true;
         }
 
@@ -773,7 +803,10 @@ struct ColecoHW : board_base
             } else {
                 data = ((~user_flags >> 24) & 0xFF) & 0x7F;
             }
-            if(debug & DEBUG_IO) printf("read controller2 port, read 0x%02X\n", data);
+            if(debug & DEBUG_IO) printf("read controller2 port 0x%02X, read 0x%02X\n", addr, data);
+#ifdef PROVIDE_DEBUGGER
+            io_reads.insert(addr);
+#endif
             return true;
         }
 
@@ -949,6 +982,7 @@ bool is_breakpoint_triggered(std::vector<BreakPoint>& breakpoints, Z80_STATE* st
 struct Debugger
 {
     std::vector<BreakPoint> breakpoints;
+    std::set<int> io_watch;
     std::string address_to_symbol[65536]; // XXX excessive memory?
     std::map<std::string, int> symbol_to_address; // XXX excessive memory?
     sig_t previous_sigint;
@@ -1382,6 +1416,7 @@ bool debugger_help(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
     printf("    symbols file.prn      - read symbols from file\n");
     printf("    step [N]              - step [for N instructions]\n");
     printf("    watch addr            - break out of step if addr changes\n");
+    printf("    watchio addr          - break out of step if addr is IO read or write\n");
     printf("    break addr            - break into debugger at addr\n");
     printf("    disable N             - disable breakpoint N\n");
     printf("    enable N              - disable breakpoint N\n");
@@ -1506,7 +1541,7 @@ bool debugger_break(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
 bool debugger_watch(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
-        fprintf(stderr, "break: expected address\n");
+        fprintf(stderr, "watch: expected address\n");
         return false;
     }
 
@@ -1518,6 +1553,28 @@ bool debugger_watch(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     unsigned char old_value;
     Z80_READ_BYTE(address, old_value);
     d->breakpoints.push_back(BreakPoint(address, old_value));
+    return false;
+}
+
+bool debugger_watchio(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+{
+    if(argc != 2) {
+        fprintf(stderr, "watchio: expected address\n");
+        return false;
+    }
+
+    int address;
+    if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
+        return false;
+    }
+
+    if(d->io_watch.count(address) > 0) {
+        fprintf(stderr, "watchio: removing watch on 0x%X\n", address);
+        d->io_watch.erase(address);
+    } else {
+        fprintf(stderr, "watchio: adding watch on 0x%X\n", address);
+        d->io_watch.insert(address);
+    }
     return false;
 }
 
@@ -1620,6 +1677,7 @@ void populate_command_handlers()
     command_handlers["pc"] = debugger_pc;
     command_handlers["break"] = debugger_break;
     command_handlers["watch"] = debugger_watch;
+    command_handlers["watchio"] = debugger_watchio;
     command_handlers["enable"] = debugger_enable;
     command_handlers["disable"] = debugger_disable;
     command_handlers["remove"] = debugger_remove;
@@ -1678,6 +1736,22 @@ bool Debugger::process_line(std::vector<board_base*>& boards, Z80_STATE* state, 
 bool Debugger::should_debug(std::vector<board_base*>& boards, Z80_STATE* state)
 {
     int which;
+    for(auto *b : boards) {
+        auto io_reads_tmp = b->io_reads;
+        auto io_writes_tmp = b->io_writes;
+        b->io_reads.clear();
+        b->io_writes.clear();
+        for(auto io_read: io_reads_tmp) {
+            if(io_watch.count(io_read) > 0) {
+                return true;
+            }
+        }
+        for(auto [io_write_address, io_write_value]: io_writes_tmp) {
+            if(io_watch.count(io_write_address) > 0) {
+                return true;
+            }
+        }
+    }
     bool should = !last_was_jump && is_breakpoint_triggered(breakpoints, state, which);
     last_was_jump = false;
     return should;
