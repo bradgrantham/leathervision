@@ -38,7 +38,13 @@
 
 #include "gl_utility.h"
 
-const bool debug = false;
+#define PROVIDE_DEBUGGER
+
+constexpr unsigned int DEBUG_ROM = 0x01;
+constexpr unsigned int DEBUG_RAM = 0x02;
+constexpr unsigned int DEBUG_IO = 0x04;
+unsigned int debug = DEBUG_IO;
+const bool break_on_unknown_address = true;
 const bool profiling = false;
 
 unsigned long user_flags = 0;
@@ -657,8 +663,6 @@ TMS9918A *VDP;
 
 struct ColecoHW : board_base
 {
-    bool debug;
-
     TMS9918A vdp;
     SN76489A sound;
 
@@ -679,7 +683,6 @@ struct ColecoHW : board_base
     ColecoHW() :
         sound(machine_clock_rate)
     {
-        debug = false;
         VDP = &vdp;
     }
 
@@ -709,19 +712,19 @@ struct ColecoHW : board_base
 
         /* if(addr == ColecoHW::SN76489A_PORT) { */
         if((addr >= 0xE0) && (addr <= 0xFF)) {
-            if(debug) printf("audio write 0x%02X\n", data);
+            if(debug & DEBUG_IO) printf("audio write 0x%02X\n", data);
             sound.write(data);
             return true;
         }
 
         if(addr == ColecoHW::SWITCH_TO_KEYPAD_PORT) {
-            if(debug) printf("switch to keypad\n");
+            if(debug & DEBUG_IO) printf("switch to keypad\n");
             reading_joystick = false;
             return true;
         }
 
         if(addr == ColecoHW::SWITCH_TO_JOYSTICK_PORT) {
-            if(debug) printf("switch to keypad\n");
+            if(debug & DEBUG_IO) printf("switch to keypad\n");
             reading_joystick = true;
             return true;
         }
@@ -733,44 +736,51 @@ struct ColecoHW : board_base
     {
         if(false) {
             if(addr == ColecoHW::VDP_CMD_PORT) {
-                if(debug) printf("read VDP command port\n");
+                if(debug & DEBUG_IO) printf("read VDP command port\n");
                 data = vdp.read(1);
                 return true;
             }
 
             if(addr == ColecoHW::VDP_DATA_PORT) {
-                if(debug) printf("read VDP command port\n");
+                if(debug & DEBUG_IO) printf("read VDP command port\n");
                 data = vdp.read(0);
                 return true;
             }
         } else {
             if((addr >= 0xA0) && (addr <= 0xBF)) {
+                if(debug & DEBUG_IO) printf("read VDP 0x%02X\n", addr);
                 data = vdp.read(addr & 0x1);
                 return true;
             }
         }
 
 
-        /* if(addr == ColecoHW::CONTROLLER1_PORT) { */
+        /* if(addr == ColecoHW::CONTROLLER1_PORT) */
         if((addr >= 0xE0) && (addr <= 0xFF) && ((addr & 0x02) == 0x0)) {
-            if(debug) printf("read controller1 port\n");
             if(reading_joystick) {
-                data = ((~user_flags >> 0) & 0xFF);
+                data = ((~user_flags >> 0) & 0xFF) & 0x7F;
             } else {
-                data = ((~user_flags >> 8) & 0xFF);
+                data = ((~user_flags >> 8) & 0xFF) & 0x7F;
             }
+            if(debug & DEBUG_IO) printf("read controller1 port, read 0x%02X\n", data);
             return true;
         }
 
-        /* if(addr == ColecoHW::CONTROLLER2_PORT) { */
+        /* if(addr == ColecoHW::CONTROLLER2_PORT) */
         if((addr >= 0xE0) && (addr <= 0xFF) && ((addr & 0x02) == 0x2)) {
-            if(debug) printf("read controller2 port\n");
             if(reading_joystick) {
-                data = ((~user_flags >> 16) & 0xFF);
+                data = ((~user_flags >> 16) & 0xFF) & 0x7F;
             } else {
-                data = ((~user_flags >> 24) & 0xFF);
+                data = ((~user_flags >> 24) & 0xFF) & 0x7F;
             }
+            if(debug & DEBUG_IO) printf("read controller2 port, read 0x%02X\n", data);
             return true;
+        }
+
+        if(debug & DEBUG_IO) printf("read unknown address 0x%02X\n", addr);
+
+        if(break_on_unknown_address) {
+            abort();
         }
 
         return false;
@@ -811,7 +821,7 @@ struct RAMboard : board_base
     {
         if(addr >= base && addr < base + length) {
             data = bytes.get()[addr - base];
-            if(debug) printf("read 0x%04X -> 0x%02X from RAM\n", addr, data);
+            if(debug & DEBUG_RAM) printf("read 0x%04X -> 0x%02X from RAM\n", addr, data);
             return true;
         }
         return false;
@@ -820,7 +830,7 @@ struct RAMboard : board_base
     {
         if(addr >= base && addr < base + length) {
             bytes.get()[addr - base] = data;
-            if(debug) printf("wrote 0x%02X to RAM 0x%04X\n", data, addr);
+            if(debug & DEBUG_RAM) printf("wrote 0x%02X to RAM 0x%04X\n", data, addr);
             return true;
         }
         return false;
@@ -843,7 +853,7 @@ struct ROMboard : board_base
     {
         if(addr >= base && addr < base + length) {
             data = bytes.get()[addr - base];
-            if(debug) printf("read 0x%04X -> 0x%02X from ROM\n", addr, data);
+            if(debug & DEBUG_ROM) printf("read 0x%04X -> 0x%02X from ROM\n", addr, data);
             return true;
         }
         return false;
@@ -851,7 +861,7 @@ struct ROMboard : board_base
     virtual bool memory_write(int addr, unsigned char data)
     {
         if(addr >= base && addr < base + length) {
-            if(debug) printf("attempted write 0x%02X to ROM 0x%04X ignored\n", data, addr);
+            if(debug & DEBUG_ROM) printf("attempted write 0x%02X to ROM 0x%04X ignored\n", data, addr);
         }
         return false;
     }
@@ -1576,7 +1586,7 @@ bool debugger_list(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
     printf("breakpoints:\n");
     for(auto i = d->breakpoints.begin(); i != d->breakpoints.end(); i++) {
         BreakPoint& bp = (*i);
-        printf("%d : ", i - d->breakpoints.begin());
+        printf("%ld : ", i - d->breakpoints.begin());
         printf("%s ", bp.enabled ? " enabled" : "disabled");
         printf("%s ", (bp.type == BreakPoint::INSTRUCTION) ? " ins" : "data");
         if(bp.type == BreakPoint::INSTRUCTION) {
