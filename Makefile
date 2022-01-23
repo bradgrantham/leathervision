@@ -4,7 +4,7 @@ BG80D_PATH=bg80d
 USE_BG80D=1
 
 OPT=-g
-# OPT=-g -pg
+# OPT=-g -O2
 LDFLAGS=-L/opt/local/lib
 # LDFLAGS=-pg -L/opt/local/lib
 LDLIBS=-lreadline -lao -lglfw -framework OpenGL -framework Cocoa -framework IOkit
