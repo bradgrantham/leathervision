@@ -8,7 +8,7 @@ OPT=-g
 LDFLAGS=-L/opt/local/lib
 # LDFLAGS=-pg -L/opt/local/lib
 LDLIBS=-lreadline -lao -lglfw -framework OpenGL -framework Cocoa -framework IOkit
-CXXFLAGS=-Wall -I/opt/local/include -I$(BG80D_PATH) -DUSE_BG80D=$(USE_BG80D) -std=c++11 $(OPT) -fsigned-char -DGL_SILENCE_DEPRECATION
+CXXFLAGS=-Wall -I/opt/local/include -I$(BG80D_PATH) -DUSE_BG80D=$(USE_BG80D) -std=c++17 $(OPT) -fsigned-char -DGL_SILENCE_DEPRECATION
 CFLAGS	+=	-fsigned-char
 
 VPATH=$(BG80D_PATH)
