@@ -136,7 +136,7 @@ struct SN76489A
     static const int CMD_NOISE_FREQ_MASK = 0x03;
 
     unsigned int tone_lengths[3];
-    unsigned int tone_attenuation[3];
+    unsigned int tone_attenuation[3] = {0, 0, 0};
 
     unsigned int noise_config;
     unsigned int noise_length;
