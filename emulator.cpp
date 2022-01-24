@@ -40,14 +40,19 @@
 
 #define PROVIDE_DEBUGGER
 
+constexpr unsigned int DEBUG_NONE = 0x00;
 constexpr unsigned int DEBUG_ROM = 0x01;
 constexpr unsigned int DEBUG_RAM = 0x02;
 constexpr unsigned int DEBUG_IO = 0x04;
-unsigned int debug = 0; // DEBUG_IO;
+constexpr unsigned int DEBUG_SCANOUT = 0x08;
+constexpr unsigned int DEBUG_VDP_OPERATIONS = 0x10;
+unsigned int debug = DEBUG_NONE;
+bool abort_on_exception = false;
+bool do_save_images_on_vdp_write = false;
 const bool break_on_unknown_address = true;
 const bool profiling = false;
 
-unsigned long user_flags = 0;
+uint32_t user_flags = 0;
 
 Z80_STATE z80state;
 bool Z80_INTERRUPT_FETCH = false;
@@ -55,9 +60,10 @@ unsigned short Z80_INTERRUPT_FETCH_DATA;
 
 typedef long long clk_t;
 
-const clk_t machine_clock_rate = 3579545;
-clk_t clk = 0;
-clk_t micros_per_slice = 16666;
+constexpr clk_t machine_clock_rate = 3579545;
+constexpr uint32_t slice_frequency = 60;
+constexpr uint32_t clocks_per_slice = machine_clock_rate / slice_frequency;
+constexpr clk_t micros_per_slice = 1000000 / slice_frequency;
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
@@ -312,11 +318,13 @@ struct SN76489A
 
 struct TMS9918A
 {
-    bool debug = false;
+    bool cmd_started_in_nmi{false};
+    int frame_number{0};
+    int write_number{0};
 
     static const int MEMORY_SIZE = 16384;
     unsigned char memory[16384];
-    unsigned char registers[64];
+    unsigned char registers[64]{};
 
     static const int REG_A0_A5_MASK = 0x3F;
     static const int CMD_MASK = 0xC0;
@@ -382,8 +390,8 @@ struct TMS9918A
     unsigned int read_address = 0x0;
     unsigned int write_address = 0x0;
 
-    bool vdp_int = false;
-    bool sprite_int = false;
+    bool vdp_int{false};
+    bool sprite_int{false};
 
     TMS9918A()
     {
@@ -393,38 +401,57 @@ struct TMS9918A
 
     void write(int cmd, unsigned char data)
     {
+        if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, z80state.in_nmi);
+        if(do_save_images_on_vdp_write) { /* debug */
+            create_image(framebuffer);
+            char name[512];
+            sprintf(name, "frame_%04d_%05d_%d_%02X.ppm", frame_number, write_number, cmd, data);
+            FILE *fp = fopen(name, "w");
+            write_image(framebuffer, fp);
+            fclose(fp);
+        }
+        write_number++;
         if(cmd) {
 
             if(cmd_phase == CMD_PHASE_FIRST) {
 
-                if(debug) printf("VDP command write, first byte 0x%02X\n", data);
+                if(debug & DEBUG_VDP_OPERATIONS) printf("VDP command write, first byte 0x%02X\n", data);
                 cmd_data = data;
                 cmd_phase = CMD_PHASE_SECOND;
+                cmd_started_in_nmi = z80state.in_nmi;
 
             } else {
+
+                if(z80state.in_nmi != cmd_started_in_nmi) {
+                    if(cmd_started_in_nmi) {
+                        printf("VDP cmd was started in NMI but finished outside NMI; likely corruption\n");
+                    } else {
+                        printf("VDP cmd was started outside NMI but finished inside NMI; likely corruption\n");
+                    }
+                    if(abort_on_exception) abort();
+                }
 
                 int cmd = data & CMD_MASK;
                 if(cmd == CMD_SET_REGISTER) {
                     int which_register = data & REG_A0_A5_MASK;
-                    if(debug) printf("VDP command write to register 0x%02X, value 0x%02X\n", which_register, cmd_data);
+                    if(debug & DEBUG_VDP_OPERATIONS) printf("VDP command write to register 0x%02X, value 0x%02X\n", which_register, cmd_data);
                     registers[which_register] = cmd_data;
                 } else if(cmd == CMD_SET_WRITE_ADDRESS) {
-                    // write_address = (cmd_data << 6) | (data & REG_A0_A5_MASK);
                     write_address = ((data & REG_A0_A5_MASK) << 8) | cmd_data;
-                    if(debug) printf("VDP write address set to 0x%04X\n", write_address);
+                    if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write address set to 0x%04X\n", write_address);
                 } else if(cmd == CMD_SET_READ_ADDRESS) {
-                    // read_address = (cmd_data << 6) | (data & REG_A0_A5_MASK);
                     read_address = ((data & REG_A0_A5_MASK) << 8) | cmd_data;
-                    if(debug) printf("VDP read address set to 0x%04X\n", write_address);
+                    if(debug & DEBUG_VDP_OPERATIONS) printf("VDP read address set to 0x%04X\n", write_address);
                 } else {
-                    if(debug) printf("uh-oh, VDP cmd was 0x%02X!\n", cmd);
+                    if(debug & DEBUG_VDP_OPERATIONS) printf("uh-oh, VDP cmd was 0x%02X!\n", cmd);
+                    if(abort_on_exception) abort();
                 }
                 cmd_phase = CMD_PHASE_FIRST;
             }
 
         } else {
 
-            if(debug) {
+            if(debug & DEBUG_VDP_OPERATIONS) {
                 static char bitfield[9];
                 for(int i = 0; i < 8; i++) bitfield[i] = (data & (0x80 >> i)) ? '*' : ' ';
                 bitfield[8] = '\0';
@@ -443,6 +470,14 @@ struct TMS9918A
     unsigned char read(int cmd)
     {
         if(cmd) {
+            if(cmd_phase == CMD_PHASE_SECOND) {
+                if(z80state.in_nmi) {
+                    printf("cmd_phase was reset in ISR\n");
+                } else {
+                    printf("cmd_phase was reset outside ISR\n");
+                }
+                abort();
+            }
             cmd_phase = CMD_PHASE_FIRST;
             unsigned char data =
                 (vdp_int ? VDP_STATUS_INT_BIT : 0x0) |
@@ -541,7 +576,7 @@ struct TMS9918A
 	return sprites_valid; 
     }
 
-    void perform_scanout(unsigned char image[SCREEN_X * SCREEN_Y * 4])
+    void create_image(unsigned char image[SCREEN_X * SCREEN_Y * 4])
     {
         static unsigned char previous_sprite_bits[SCREEN_Y][SCREEN_X];
 
@@ -644,13 +679,23 @@ struct TMS9918A
                                 previous_sprite_bits[y][x] = 0xFF;
 			    }
 			}
-			for(int c = 0; c < 3; c++)
+			for(int c = 0; c < 3; c++) {
 			    pixel[c] = color[c];
+                        }
 		    }
                 }
             }
         }
-        vdp_int = true;
+    }
+
+    void perform_scanout(unsigned char image[SCREEN_X * SCREEN_Y * 4])
+    {
+        frame_number++;
+        write_number = 0;
+        if(debug & DEBUG_SCANOUT) {
+            printf("scanout frame %d\n", frame_number);
+        }
+        create_image(image);
     }
 
     bool nmi_requested()
@@ -981,6 +1026,8 @@ bool is_breakpoint_triggered(std::vector<BreakPoint>& breakpoints, Z80_STATE* st
 
 struct Debugger
 {
+    ColecoHW* coleco{nullptr};
+    clk_t& clk;
     std::vector<BreakPoint> breakpoints;
     std::set<int> io_watch;
     std::string address_to_symbol[65536]; // XXX excessive memory?
@@ -1041,7 +1088,9 @@ struct Debugger
         last_was_step = false;
         last_was_jump = false;
     }
-    Debugger()
+    Debugger(ColecoHW *coleco, clk_t& clk) :
+        coleco(coleco),
+        clk(clk)
     {
         ctor();
     }
@@ -1460,7 +1509,7 @@ bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
         }
     }
     for(int i = 0; i < count; i++) {
-        clk += Z80Emulate(state, 1);
+        d->clk += Z80Emulate(state, 1);
         if(i < count - 1) {
             if(verbose) {
                 print_state(state);
@@ -1471,7 +1520,7 @@ bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
             break;
         }
     }
-    printf("%llu actual cycles emulated\n", clk);
+    printf("%llu actual cycles emulated\n", d->clk);
     d->state_may_have_changed = true;
     d->last_was_step = true;
     return false;
@@ -2042,6 +2091,9 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
             case GLFW_KEY_LEFT_SHIFT:
                 shift_pressed = true;
                 break;
+            case GLFW_KEY_N:
+                do_save_images_on_vdp_write = !do_save_images_on_vdp_write;
+                break;
             case GLFW_KEY_W:
                 user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT) | CONTROLLER1_NORTH_BIT;
                 break;
@@ -2438,7 +2490,7 @@ void cvhat_read_controllers()
 int main(int argc, char **argv)
 {
 #ifdef PROVIDE_DEBUGGER
-    Debugger *debugger = NULL;
+    bool do_debugger = false;
     char *debugger_argument = NULL;
 
     populate_command_handlers();
@@ -2463,7 +2515,7 @@ int main(int argc, char **argv)
                 usage(progname);
                 exit(EXIT_FAILURE);
             }
-            debugger = new Debugger();
+            do_debugger = true;
             debugger_argument = argv[1];
 	    argc -= 2;
 	    argv += 2;
@@ -2527,7 +2579,15 @@ int main(int argc, char **argv)
     fclose(fp);
     ROMboard *cart_rom = new ROMboard(0x8000, cart_length, rom_temp);
 
+    clk_t clk = 0;
     ColecoHW* coleco = new ColecoHW();
+
+#ifdef PROVIDE_DEBUGGER
+    Debugger *debugger = NULL;
+    if(do_debugger) {
+        debugger = new Debugger(coleco, clk);
+    }
+#endif
 
     boards.push_back(coleco);
     boards.push_back(bios_rom);
@@ -2550,12 +2610,10 @@ int main(int argc, char **argv)
 #endif
 
     std::chrono::time_point<std::chrono::system_clock> then = std::chrono::system_clock::now();
+    bool nmi_was_requested = false;
 
-    clk_t clk = 0;
     while(!quit)
     {
-        clk_t clocks_per_slice = micros_per_slice * machine_clock_rate / 1000000;
-
 #ifdef PROVIDE_DEBUGGER
         if(debugger && (enter_debugger || debugger->should_debug(boards, &z80state))) {
             debugger->go(stdin, boards, &z80state);
@@ -2578,12 +2636,35 @@ int main(int argc, char **argv)
             } else
 #endif
             {
-                clk_t cycles = 0;
-		cycles += Z80Emulate(&z80state, clocks_per_slice);
-                while(cycles < clocks_per_slice) {
-                    cycles += Z80Emulate(&z80state, 1000);
+                clk_t start_of_this_slice = clk;
+                static clk_t previous_field_start_clock = 0;
+
+                constexpr int iterated_clock_quantum = 1;
+
+		if(false) {
+                    clk += Z80Emulate(&z80state, clocks_per_slice - 1000);
+                }
+
+                while((clk - start_of_this_slice) < clocks_per_slice) {
+                    clk += Z80Emulate(&z80state, iterated_clock_quantum);
+
+                    uint64_t retrace_before = previous_field_start_clock / clocks_per_slice;
+                    uint64_t retrace_after = clk / clocks_per_slice;
+                    if(retrace_before != retrace_after) {
+                        // printf("VDP frame interrupt %llu, %llu clocks\n", retrace_after, clk - previous_field_start_clock);
+                        coleco->vdp.vdp_int = true;
+                        previous_field_start_clock = clk;
+                    }
+
+                    if(coleco->nmi_requested()) {
+                        if(!nmi_was_requested) {
+                            Z80NonMaskableInterrupt (&z80state);
+                            nmi_was_requested = true;
+                        }
+                    } else {
+                        nmi_was_requested = false;
+                    }
 		}
-                clk += cycles;
             }
             std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
             auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
@@ -2600,9 +2681,9 @@ int main(int argc, char **argv)
             auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
             if(!run_fast || pause_cpu) {
                 // std::this_thread::sleep_for(std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate) - elapsed_micros);
-                auto remaining_in_slice = std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate) - elapsed_micros;
+                auto remaining_in_slice = std::chrono::microseconds(micros_per_slice) - elapsed_micros;
                 if(profiling) printf("elapsed %lld, sleep %lld\n", elapsed_micros.count(), remaining_in_slice.count());
-                // printf("%f%%\n", 100.0 - elapsed_micros.count() * 100.0 / std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate).count());
+                // printf("%f%%\n", 100.0 - elapsed_micros.count() * 100.0 / micros_per_slice);
             }
 
             then = now;
@@ -2618,10 +2699,6 @@ int main(int argc, char **argv)
                 clk += Z80Interrupt(&z80state, 0xCD);
                 break;
             }
-        }
-
-        if(coleco->nmi_requested()) {
-            Z80NonMaskableInterrupt (&z80state);
         }
 
 	std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
