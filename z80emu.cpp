@@ -83,6 +83,7 @@ static int      emulate (Z80_STATE * state, int number_cycles, int opcode);
 void Z80Reset (Z80_STATE *state)
 {
         state->status = 0;
+        state->in_nmi = 0;
         AF = 0xffff;
         SP = 0xffff;
         state->i = state->pc = state->iff1 = state->iff2 = 0;
@@ -160,6 +161,7 @@ int Z80Interrupt (Z80_STATE *state, int data_on_bus)
 int Z80NonMaskableInterrupt (Z80_STATE *state)
 {
         state->status = 0;
+        state->in_nmi = 1;
 
         state->iff2 = state->iff1;
         state->iff1 = 0;
@@ -168,7 +170,7 @@ int Z80NonMaskableInterrupt (Z80_STATE *state)
         SP -= 2;
         Z80_WRITE_WORD(SP, state->pc);
         state->pc = 0x0066;
-        
+
         return 11;
 }
 
@@ -1232,6 +1234,7 @@ emulate_next_instruction:
 #ifdef Z80_CATCH_HALT
 
                                 state->status |= Z80_STATUS_FLAG_HALT;
+                                abort();
                                 goto stop_emulation;
 
 #else
@@ -2228,6 +2231,7 @@ emulate_next_instruction:
 
                         case RETI_RETN: {
 
+                                state->in_nmi = 0;
                                 state->iff1 = state->iff2;
                                 POP(pc);        
 

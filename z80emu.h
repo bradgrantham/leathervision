@@ -46,8 +46,8 @@
  * processor.
  */
 
-/*      
-#define Z80_CATCH_HALT
+/*
+#define Z80_CATCH_HALT      
 #define Z80_CATCH_DI
 #define Z80_CATCH_EI
 #define Z80_CATCH_RETI
@@ -188,6 +188,7 @@ typedef struct {
         unsigned short  alternates[4];
 
         int             i, r, pc, iff1, iff2, im;
+        int in_nmi;
 
 } Z80_STATE;
 
