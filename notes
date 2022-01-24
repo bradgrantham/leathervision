@@ -1,4 +1,20 @@
-No known issues or very minor issues
+possible causes
+    NMI between data and cmd, ISR reads status, resetting phase and breaking non-INT cmd sequence
+        I have abort()s in there and they're not firing
+    NMI between data and cmd, ISR issues data and cmd, sending a broken cmd and breaking non-INT cmd sequence
+        I have a check to make sure I'm not getting SECOND in other mode from FIRST and that's not firing
+    I'm issuing the interrupt long after I'm setting the status bit
+    I'm decoding VDP data writes wrong and decoding one extra byte
+    I'm decoding VDP data writes wrong and missing a byte
+    I'm not implementing a mask of some kind on the interrupt inside the VDP
+
+TODO
+move vdp_int and coinc bits to VDP status byte, test them there, return that byte and clear on read
+implement fifth sprite check & status register content
+make IO read/write decoding match schematic
+
+No known issues or very minor issues but need to verify against Youtube or real thing or another simulator
+    Miner 2049er
     Q-bert
     Donkey Kong
     Donkey Kong Jr.
@@ -20,20 +36,24 @@ No known issues or very minor issues
         there's no animation during explosion - is that normal?
     Beamrider
         stars show up after dying - is that normal?
+    Defender
+    Dig Dug
 
 Works with minor issues
     Jungle Hunt
         incorrect rendering of vines
         lots of garbage on swimming screen - wrong 8x8s fetched, wrong sprites?
     Pitfall!
-        couple corrupted sprites on screens 2 and later - sprites not being cleared?
+        corrupted sprites, corrupted backgrounds
+        after dying, "Activision" scrolls in some tiles, and sometimes those are replicated in random other places and scrolling
+        so I'd guess corrupted write addresses for VRAM, but could it be corrupted write data?
 
 Known serious issues preventing game play
     Frogger - hangs at initial screen with one note playing continuously - doesn't detect VBLANK / VDP?
-    Defender - hangs at "press N for N player game"; reading controller differently?
-    Slither - no controls; reading the controller differently?  Controller 2?
-    Dig Dug - never detects game selection; reading controller differently?
-    Miner 2049er - seg fault
+        WONTFIX - don't know what's going on here, need to disassemble
+
+Wontfix
+    Slither - requires Roller Controller (trackball)
 
 Unknown
     Super Action Controller Test Cartridge (1983) (Nuvatec).rom
