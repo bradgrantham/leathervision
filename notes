@@ -1,25 +1,33 @@
-possible causes
-    NMI between data and cmd, ISR reads status, resetting phase and breaking non-INT cmd sequence
-        I have abort()s in there and they're not firing
-    NMI between data and cmd, ISR issues data and cmd, sending a broken cmd and breaking non-INT cmd sequence
-        I have a check to make sure I'm not getting SECOND in other mode from FIRST and that's not firing
-    I'm issuing the interrupt long after I'm setting the status bit
-    I'm decoding VDP data writes wrong and decoding one extra byte
-    I'm decoding VDP data writes wrong and missing a byte
-    I'm not implementing a mask of some kind on the interrupt inside the VDP
-
 TODO
 move vdp_int and coinc bits to VDP status byte, test them there, return that byte and clear on read
 implement fifth sprite check & status register content
 make IO read/write decoding match schematic
 
 No known issues or very minor issues but need to verify against Youtube or real thing or another simulator
-    Miner 2049er
-    Q-bert
     Donkey Kong
     Donkey Kong Jr.
     Zaxxon
     Smurf
+    Pitfall!
+
+Works with minor issues
+    none
+
+Known serious issues preventing game play
+    Jungle Hunt
+        incorrect rendering of vines
+        aborts with interrupted VDP command
+    Frogger - aborts with unknown IO
+
+Wontfix
+    Slither - requires Roller Controller (trackball)
+
+Unknown
+    Super Action Controller Test Cartridge (1983) (Nuvatec).rom
+
+Need to re-test
+    Miner 2049er
+    Q-bert
     Mr. Do!
     Roc 'N Rope
     Burgertime 1983 prototype
@@ -38,26 +46,6 @@ No known issues or very minor issues but need to verify against Youtube or real 
         stars show up after dying - is that normal?
     Defender
     Dig Dug
-
-Works with minor issues
-    Jungle Hunt
-        incorrect rendering of vines
-        lots of garbage on swimming screen - wrong 8x8s fetched, wrong sprites?
-    Pitfall!
-        corrupted sprites, corrupted backgrounds
-        after dying, "Activision" scrolls in some tiles, and sometimes those are replicated in random other places and scrolling
-        so I'd guess corrupted write addresses for VRAM, but could it be corrupted write data?
-
-Known serious issues preventing game play
-    Frogger - hangs at initial screen with one note playing continuously - doesn't detect VBLANK / VDP?
-        WONTFIX - don't know what's going on here, need to disassemble
-
-Wontfix
-    Slither - requires Roller Controller (trackball)
-
-Unknown
-    Super Action Controller Test Cartridge (1983) (Nuvatec).rom
-
 
 Maybe 2 or 3 bugs:
     * controller read issues, e.g. Defender, Dig Dug, Slither
