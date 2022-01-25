@@ -3,47 +3,33 @@ TODO
 * implement fifth sprite check & status register content
 * make IO read/write decoding match schematic
 
-No or very minor issues but need to verify another source
-* Q-bert (but known to make unknown command 0xC0 to VDP, ignored)
-* Pitfall II - Lost Caverns
-  * a little chirping during soundtrack - am I not doing silencing correctly?
-* Mr. Do!
-* Dig Dug
-* Roc 'N Rope
-* Defender
-* Donkey Kong
-* Donkey Kong Jr.
-* Zaxxon
-* Smurf
-* Pitfall!
-* Looping
-* Miner 2049er
-  * weird tone at beginning
-* Choplifter!
-* Burgertime 1983 prototype
-* Burgertime
-* Spy Hunter Prototype
-* Spy Hunter
-* Popeye
-  * strange high-pitched whistle when there seems like there should be a rest between notes during play
-* Super Cross Force
-  * there's no animation during explosion - is that normal?
-* Beamrider
-  * stars show up after dying - is that normal?
-
-Works with minor issues
-* Moon Patrol
-  * title screen is missing the name 
-* Jungle Hunt
-  * occasionally aborts with interrupted VDP command
-
-Known serious issues preventing game play
-* none
-
+| Cartridge | Status | Notes |
+| --------- | ------ | ----- |
+| Q-bert | playable | (but known to make unknown command 0xC0 to VDP, ignored) |
+| Pitfall II - Lost Caverns | playable | a little chirping during soundtrack - am I not doing silencing correctly? |
+| Mr. Do! | playable | |
+| Dig Dug | playable | |
+| Roc 'N Rope | playable | |
+| Defender | playable | |
+| Donkey Kong | playable | |
+| Donkey Kong Jr. | playable | |
+| Zaxxon | playable | |
+| Smurf | playable | |
+| Pitfall! | playable | |
+| Looping | playable | |
+| Miner 2049er | playable | weird tone at beginning |
+| Choplifter! | playable | |
+| Burgertime 1983 prototype | playable | |
+| Burgertime | playable | |
+| Spy Hunter Prototype | playable | |
+| Spy Hunter | playable | |
+| Popeye | playable | strange high-pitched whistle when there seems like there should be a rest between notes during play |
+| Super Cross Force | playable | there's no animation during explosion - is that normal? |
+| Beamrider | playable | stars show up after dying - is that normal? |
+| Moon Patrol (prototype) | playable | title screen is missing the name |
+| Jungle Hunt | playable+crash | occasionally aborts with interrupted VDP command |
 Wontfix
-* Frogger
-  * repeated note after drawing initial screen, no recognition of game start
-* Slither - requires Roller Controller (trackball)
+| Frogger | hang WONTFIX | repeated note after drawing initial screen, no recognition of game start |
+| Slither | unknown | appears to work but requires Roller Controller (trackball) |
+| Super Action Controller Test Cartridge | unknown | |
 
-Unknown
-* Super Action Controller Test Cartridge (1983) (Nuvatec).rom
