@@ -443,8 +443,11 @@ struct TMS9918A
                     read_address = ((data & REG_A0_A5_MASK) << 8) | cmd_data;
                     if(debug & DEBUG_VDP_OPERATIONS) printf("VDP read address set to 0x%04X\n", write_address);
                 } else {
-                    if(debug & DEBUG_VDP_OPERATIONS) printf("uh-oh, VDP cmd was 0x%02X!\n", cmd);
-                    if(abort_on_exception) abort();
+                    if((debug & DEBUG_VDP_OPERATIONS) && !abort_on_exception) printf("VDP cmd was unknown 0x%02X!\n", cmd);
+                    if(abort_on_exception) {
+                        printf("VDP cmd was unknown 0x%02X, aborting\n", cmd);
+                        abort();
+                    }
                 }
                 cmd_phase = CMD_PHASE_FIRST;
             }
@@ -2639,6 +2642,7 @@ int main(int argc, char **argv)
                 clk_t start_of_this_slice = clk;
                 static clk_t previous_field_start_clock = 0;
 
+                // XXX THIS HAS TO REMAIN 1 UNTIL I CAN ISSUE NonMaskableInterrupt PER-INSTRUCTION
                 constexpr int iterated_clock_quantum = 1;
 
 		if(false) {
@@ -2652,6 +2656,14 @@ int main(int argc, char **argv)
                     uint64_t retrace_after = clk / clocks_per_slice;
                     if(retrace_before != retrace_after) {
                         // printf("VDP frame interrupt %llu, %llu clocks\n", retrace_after, clk - previous_field_start_clock);
+                        {
+                            std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
+                            VDP->perform_scanout(framebuffer);
+                            std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
+                            auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+                            if(profiling) printf("VDP scanout %lld\n", real_elapsed_micros.count());
+                        }
+
                         coleco->vdp.vdp_int = true;
                         previous_field_start_clock = clk;
                     }
@@ -2669,12 +2681,6 @@ int main(int argc, char **argv)
             std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
             auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
 	    if(profiling) printf("insns %lld\n", real_elapsed_micros.count());
-
-	    before = std::chrono::system_clock::now();
-            VDP->perform_scanout(framebuffer);
-	    after = std::chrono::system_clock::now();
-	    real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-	    if(profiling) printf("VDP scanout %lld\n", real_elapsed_micros.count());
 
             std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
 
