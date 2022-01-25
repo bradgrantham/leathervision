@@ -28,7 +28,6 @@ TODO
 | Beamrider | playable | stars show up after dying - is that normal? |
 | Moon Patrol (prototype) | playable | title screen is missing the name |
 | Jungle Hunt | playable+crash | occasionally aborts with interrupted VDP command |
-Wontfix
 | Frogger | hang WONTFIX | repeated note after drawing initial screen, no recognition of game start |
 | Slither | unknown | appears to work but requires Roller Controller (trackball) |
 | Super Action Controller Test Cartridge | unknown | |
