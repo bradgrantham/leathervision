@@ -13,8 +13,6 @@
 #include <sys/time.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
-// XXX remove if doesn't cause error #include <sys/socket.h>
-// XXX remove if doesn't cause error #include <fcntl.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <sys/ioctl.h>
@@ -54,7 +52,43 @@ bool do_save_images_on_vdp_write = false;
 const bool break_on_unknown_address = true;
 const bool profiling = false;
 
-uint32_t user_flags = 0;
+namespace COLECOinterface
+{
+
+uint8_t controller_1_joystick_state = 0;
+uint8_t controller_2_joystick_state = 0;
+uint8_t controller_1_keypad_state = 0;
+uint8_t controller_2_keypad_state = 0;
+
+uint8_t GetJoystickState(ControllerIndex controller)
+{
+    uint8_t data;
+    switch(controller) {
+        case CONTROLLER_1:
+            data = (~controller_1_joystick_state) & 0x7F;
+            break;
+        case CONTROLLER_2:
+            data = (~controller_2_joystick_state) & 0x7F;
+            break;
+    }
+    return data;
+}
+
+uint8_t GetKeypadState(ControllerIndex controller)
+{
+    uint8_t data;
+    switch(controller) {
+        case CONTROLLER_1:
+            data = (~controller_1_keypad_state) & 0x7F;
+            break;
+        case CONTROLLER_2:
+            data = (~controller_2_keypad_state) & 0x7F;
+            break;
+    }
+    return data;
+}
+
+};
 
 Z80_STATE z80state;
 bool Z80_INTERRUPT_FETCH = false;
@@ -706,6 +740,16 @@ struct TMS9918A
 
 TMS9918A *VDP;
 
+// struct JoystickState
+// {
+    // bool n, s, e, w, rightTrigger;
+// };
+// 
+// struct KeypadState
+// {
+    // bool matrix, leftTrigger;
+// };
+
 struct ColecoHW : board_base
 {
     TMS9918A vdp;
@@ -824,13 +868,11 @@ struct ColecoHW : board_base
             }
         }
 
-
-        /* if(addr == ColecoHW::CONTROLLER1_PORT) */
         if((addr >= 0xE0) && (addr <= 0xFF) && ((addr & 0x02) == 0x0)) {
             if(reading_joystick) {
-                data = ((~user_flags >> 0) & 0xFF) & 0x7F;
+                data = COLECOinterface::GetJoystickState(COLECOinterface::CONTROLLER_1);
             } else {
-                data = ((~user_flags >> 8) & 0xFF) & 0x7F;
+                data = COLECOinterface::GetKeypadState(COLECOinterface::CONTROLLER_1);
             }
             if(debug & DEBUG_IO) printf("read controller1 port 0x%02X, read 0x%02X\n", addr, data);
 #ifdef PROVIDE_DEBUGGER
@@ -839,12 +881,11 @@ struct ColecoHW : board_base
             return true;
         }
 
-        /* if(addr == ColecoHW::CONTROLLER2_PORT) */
         if((addr >= 0xE0) && (addr <= 0xFF) && ((addr & 0x02) == 0x2)) {
             if(reading_joystick) {
-                data = ((~user_flags >> 16) & 0xFF) & 0x7F;
+                data = COLECOinterface::GetJoystickState(COLECOinterface::CONTROLLER_2);
             } else {
-                data = ((~user_flags >> 24) & 0xFF) & 0x7F;
+                data = COLECOinterface::GetKeypadState(COLECOinterface::CONTROLLER_2);
             }
             if(debug & DEBUG_IO) printf("read controller2 port 0x%02X, read 0x%02X\n", addr, data);
 #ifdef PROVIDE_DEBUGGER
@@ -1368,23 +1409,6 @@ bool debugger_fill(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
     return false;
 }
 
-bool debugger_flags(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
-{
-    if(argc != 2) {
-        fprintf(stderr, "flags: expected flag value\n");
-        return false;
-    }
-    char *endptr;
-
-    user_flags = strtol(argv[1], &endptr, 0);
-    if(*endptr != '\0') {
-        printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[2]);
-        return false;
-    }
-
-    return false;
-}
-
 bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
 {
     FILE *fp = fopen("output.ppm", "w");
@@ -1707,7 +1731,6 @@ bool debugger_list(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
 void populate_command_handlers()
 {
     command_handlers["image"] = debugger_image;
-    command_handlers["flags"] = debugger_flags;
     command_handlers["?"] = debugger_help;
     command_handlers["help"] = debugger_help;
     command_handlers["readhex"] = debugger_readhex;
@@ -1894,25 +1917,26 @@ void usage(char *progname)
     printf("\n");
 }
 
+const int CONTROLLER1_NORTH_BIT = 0x01;
+const int CONTROLLER1_EAST_BIT = 0x02;
+const int CONTROLLER1_SOUTH_BIT = 0x04;
+const int CONTROLLER1_WEST_BIT = 0x08;
 const int CONTROLLER1_FIRE_LEFT_BIT = 0x40;
-const int CONTROLLER1_NORTH_BIT = 0x01; // 0x08;
-const int CONTROLLER1_EAST_BIT = 0x02; // 0x04;
-const int CONTROLLER1_SOUTH_BIT = 0x04; // 0x02;
-const int CONTROLLER1_WEST_BIT = 0x08; // 0x01;
-const int CONTROLLER1_KEYPAD_MASK = 0x0F00;
-const int CONTROLLER1_FIRE_RIGHT_BIT = 0x4000;
-const int CONTROLLER1_KEYPAD_0 = 0x0500;
-const int CONTROLLER1_KEYPAD_1 = 0x0200;
-const int CONTROLLER1_KEYPAD_2 = 0x0800;
-const int CONTROLLER1_KEYPAD_3 = 0x0300;
-const int CONTROLLER1_KEYPAD_4 = 0x0D00;
-const int CONTROLLER1_KEYPAD_5 = 0x0C00;
-const int CONTROLLER1_KEYPAD_6 = 0x0100;
-const int CONTROLLER1_KEYPAD_7 = 0x0A00;
-const int CONTROLLER1_KEYPAD_8 = 0x0E00;
-const int CONTROLLER1_KEYPAD_9 = 0x0400;
-const int CONTROLLER1_KEYPAD_asterisk = 0x0600;
-const int CONTROLLER1_KEYPAD_pound = 0x0900;
+
+const int CONTROLLER1_KEYPAD_MASK = 0x0F;
+const int CONTROLLER1_FIRE_RIGHT_BIT = 0x40;
+const int CONTROLLER1_KEYPAD_0 = 0x05;
+const int CONTROLLER1_KEYPAD_1 = 0x02;
+const int CONTROLLER1_KEYPAD_2 = 0x08;
+const int CONTROLLER1_KEYPAD_3 = 0x03;
+const int CONTROLLER1_KEYPAD_4 = 0x0D;
+const int CONTROLLER1_KEYPAD_5 = 0x0C;
+const int CONTROLLER1_KEYPAD_6 = 0x01;
+const int CONTROLLER1_KEYPAD_7 = 0x0A;
+const int CONTROLLER1_KEYPAD_8 = 0x0E;
+const int CONTROLLER1_KEYPAD_9 = 0x04;
+const int CONTROLLER1_KEYPAD_asterisk = 0x06;
+const int CONTROLLER1_KEYPAD_pound = 0x09;
 
 ao_device *open_ao()
 {
@@ -1938,6 +1962,8 @@ ao_device *open_ao()
     }
     return device;
 }
+
+using namespace COLECOinterface;
 
 static GLFWwindow* my_window;
 
@@ -2081,6 +2107,10 @@ static void error_callback(int error, const char* description)
 
 static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
+    auto set_bits = [](uint8_t& data, uint8_t bits) { data = data | bits; };
+    auto clear_bits = [](uint8_t& data, uint8_t bits) { data = data & ~bits; };
+    auto set_bitfield = [](uint8_t& data, uint8_t mask, uint8_t bits) { data = (data & ~mask) | bits; };
+
     static bool shift_pressed = false;
 
     if(action == GLFW_PRESS || action == GLFW_REPEAT ) {
@@ -2093,60 +2123,60 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
                 do_save_images_on_vdp_write = !do_save_images_on_vdp_write;
                 break;
             case GLFW_KEY_W:
-                user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT) | CONTROLLER1_NORTH_BIT;
+                set_bits(controller_1_joystick_state, CONTROLLER1_NORTH_BIT);
                 break;
             case GLFW_KEY_A:
-                user_flags = (user_flags & ~CONTROLLER1_WEST_BIT) | CONTROLLER1_WEST_BIT;
+                set_bits(controller_1_joystick_state, CONTROLLER1_WEST_BIT);
                 break;
             case GLFW_KEY_S:
-                user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT) | CONTROLLER1_SOUTH_BIT;
+                set_bits(controller_1_joystick_state, CONTROLLER1_SOUTH_BIT);
                 break;
             case GLFW_KEY_D:
-                user_flags = (user_flags & ~CONTROLLER1_EAST_BIT) | CONTROLLER1_EAST_BIT;
-                break;
-            case GLFW_KEY_ENTER:
-                user_flags = (user_flags & ~CONTROLLER1_FIRE_RIGHT_BIT) | CONTROLLER1_FIRE_RIGHT_BIT;
+                set_bits(controller_1_joystick_state, CONTROLLER1_EAST_BIT);
                 break;
             case GLFW_KEY_SPACE:
-                user_flags = (user_flags & ~CONTROLLER1_FIRE_LEFT_BIT) | CONTROLLER1_FIRE_LEFT_BIT;
+                set_bits(controller_1_joystick_state, CONTROLLER1_FIRE_LEFT_BIT);
+                break;
+            case GLFW_KEY_ENTER:
+                set_bits(controller_1_keypad_state, CONTROLLER1_FIRE_RIGHT_BIT);
                 break;
             case GLFW_KEY_0:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_0;
+                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_0);
                 break;
             case GLFW_KEY_1:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_1;
+                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_1);
                 break;
             case GLFW_KEY_2:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_2;
+                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_2);
                 break;
             case GLFW_KEY_3:
                 if(shift_pressed) {
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_pound;
+                    set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_pound);
                 } else {
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_3;
+                    set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_3);
                 }
                 break;
             case GLFW_KEY_4:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_4;
+                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_4);
                 break;
             case GLFW_KEY_5:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_5;
+                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_5);
                 break;
             case GLFW_KEY_6:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_6;
+                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_6);
                 break;
             case GLFW_KEY_7:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_7;
+                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_7);
                 break;
             case GLFW_KEY_8:
                 if(shift_pressed) {
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_asterisk;
+                    set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_asterisk);
                 } else {
-                    user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_8;
+                    set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_8);
                 }
                 break;
             case GLFW_KEY_9:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK) | CONTROLLER1_KEYPAD_9;
+                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_9);
                 break;
         }
     } else if(action == GLFW_RELEASE) {
@@ -2159,52 +2189,52 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
                 shift_pressed = false;
                 break;
             case GLFW_KEY_W:
-                user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT);
+                clear_bits(controller_1_joystick_state, CONTROLLER1_NORTH_BIT);
                 break;
             case GLFW_KEY_A:
-                user_flags = (user_flags & ~CONTROLLER1_WEST_BIT);
+                clear_bits(controller_1_joystick_state, CONTROLLER1_WEST_BIT);
                 break;
             case GLFW_KEY_S:
-                user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT);
+                clear_bits(controller_1_joystick_state, CONTROLLER1_SOUTH_BIT);
                 break;
             case GLFW_KEY_D:
-                user_flags = (user_flags & ~CONTROLLER1_EAST_BIT);
-                break;
-            case GLFW_KEY_ENTER:
-                user_flags = (user_flags & ~CONTROLLER1_FIRE_RIGHT_BIT);
+                clear_bits(controller_1_joystick_state, CONTROLLER1_EAST_BIT);
                 break;
             case GLFW_KEY_SPACE:
-                user_flags = (user_flags & ~CONTROLLER1_FIRE_LEFT_BIT);
+                clear_bits(controller_1_joystick_state, CONTROLLER1_FIRE_LEFT_BIT);
+                break;
+            case GLFW_KEY_ENTER:
+                clear_bits(controller_1_keypad_state, CONTROLLER1_FIRE_RIGHT_BIT);
                 break;
             case GLFW_KEY_0:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                clear_bits(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK);
                 break;
             case GLFW_KEY_1:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                clear_bits(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK);
                 break;
             case GLFW_KEY_2:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                clear_bits(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK);
                 break;
             case GLFW_KEY_3:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                clear_bits(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK);
                 break;
             case GLFW_KEY_4:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                clear_bits(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK);
                 break;
             case GLFW_KEY_5:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                clear_bits(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK);
                 break;
             case GLFW_KEY_6:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                clear_bits(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK);
                 break;
             case GLFW_KEY_7:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                clear_bits(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK);
                 break;
             case GLFW_KEY_8:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                clear_bits(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK);
                 break;
             case GLFW_KEY_9:
-                user_flags = (user_flags & ~CONTROLLER1_KEYPAD_MASK);
+                clear_bits(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK);
                 break;
         }
     }
@@ -2289,6 +2319,9 @@ void load_joystick_setup()
 
 void iterate_ui()
 {
+    auto set_bits = [](uint8_t& data, uint8_t bits) { data = data | bits; };
+    auto clear_bits = [](uint8_t& data, uint8_t bits) { data = data & ~bits; };
+
     CheckOpenGL(__FILE__, __LINE__);
     if(glfwWindowShouldClose(my_window)) {
         quit = true;
@@ -2336,30 +2369,26 @@ void iterate_ui()
 
         } else  {
 
-            user_flags = (user_flags & ~CONTROLLER1_EAST_BIT);
-            user_flags = (user_flags & ~CONTROLLER1_WEST_BIT);
-            user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT);
-            user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT);
-            user_flags = (user_flags & ~CONTROLLER1_FIRE_LEFT_BIT);
-            user_flags = (user_flags & ~CONTROLLER1_FIRE_RIGHT_BIT);
+            clear_bits(controller_1_joystick_state, CONTROLLER1_EAST_BIT | CONTROLLER1_WEST_BIT | CONTROLLER1_NORTH_BIT | CONTROLLER1_SOUTH_BIT | CONTROLLER1_FIRE_LEFT_BIT );
+            clear_bits(controller_1_keypad_state, CONTROLLER1_FIRE_RIGHT_BIT);
 
             if(buttons[joystick_button_west] == GLFW_PRESS) {
-                user_flags = (user_flags & ~CONTROLLER1_WEST_BIT) | CONTROLLER1_WEST_BIT;
+                set_bits(controller_1_joystick_state, CONTROLLER1_WEST_BIT);
             }
             if(buttons[joystick_button_east] == GLFW_PRESS) {
-                user_flags = (user_flags & ~CONTROLLER1_EAST_BIT) | CONTROLLER1_EAST_BIT;
+                set_bits(controller_1_joystick_state, CONTROLLER1_EAST_BIT);
             }
             if(buttons[joystick_button_north] == GLFW_PRESS) {
-                user_flags = (user_flags & ~CONTROLLER1_NORTH_BIT) | CONTROLLER1_NORTH_BIT;
+                set_bits(controller_1_joystick_state, CONTROLLER1_NORTH_BIT);
             }
             if(buttons[joystick_button_south] == GLFW_PRESS) {
-                user_flags = (user_flags & ~CONTROLLER1_SOUTH_BIT) | CONTROLLER1_SOUTH_BIT;
+                set_bits(controller_1_joystick_state, CONTROLLER1_SOUTH_BIT);
             }
             if(buttons[joystick_button_fire_left] == GLFW_PRESS) {
-                user_flags = (user_flags & ~CONTROLLER1_FIRE_LEFT_BIT) | CONTROLLER1_FIRE_LEFT_BIT;
+                set_bits(controller_1_joystick_state, CONTROLLER1_FIRE_LEFT_BIT);
             }
             if(buttons[joystick_button_fire_right] == GLFW_PRESS) {
-                user_flags = (user_flags & ~CONTROLLER1_FIRE_RIGHT_BIT) | CONTROLLER1_FIRE_RIGHT_BIT;
+                set_bits(controller_1_keypad_state, CONTROLLER1_FIRE_RIGHT_BIT);
             }
 
             use_joystick = true;
@@ -2478,6 +2507,7 @@ void cvhat_read_controllers()
 	uint8_t key1 = read_u8(cvhat_fd, CVHAT_KEYPAD_1);
 	uint8_t joy2 = read_u8(cvhat_fd, CVHAT_JOYSTICK_2);
 	uint8_t key2 = read_u8(cvhat_fd, CVHAT_KEYPAD_2);
+#error need to convert to CV joystick and keypad state
 	user_flags = (joy1 << 0) | (key1 << 8) |
 	    (joy2 << 16) | (key2 << 24);
     }
