@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <string>
 #include <map>
+#include <array>
 #include <chrono>
 #include <thread>
 #include <unistd.h>
@@ -12,8 +13,8 @@
 #include <sys/time.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <fcntl.h>
+// XXX remove if doesn't cause error #include <sys/socket.h>
+// XXX remove if doesn't cause error #include <fcntl.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <sys/ioctl.h>
@@ -37,6 +38,7 @@
 #include <GLFW/glfw3.h>
 
 #include "gl_utility.h"
+#include "interface.h"
 
 #define PROVIDE_DEBUGGER
 
@@ -66,8 +68,6 @@ constexpr uint32_t clocks_per_slice = machine_clock_rate / slice_frequency;
 constexpr clk_t micros_per_slice = 1000000 / slice_frequency;
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
-
-ao_device *aodev;
 
 std::vector<board_base*> boards;
 
@@ -137,15 +137,15 @@ struct SN76489A
     int phase = 0;
 
     unsigned char cmd_latched = 0;
-    static const int CMD_BIT = 0x80;
-    static const int CMD_REG_MASK = 0x70;
-    static const int DATA_MASK = 0x0F;
-    static const int CMD_REG_SHIFT = 4;
-    static const int FREQ_HIGH_SHIFT = 4;
-    static const int FREQ_HIGH_MASK = 0x3F;
-    static const int CMD_NOISE_CONFIG_MASK = 0x04;
-    static const int CMD_NOISE_CONFIG_SHIFT = 2;
-    static const int CMD_NOISE_FREQ_MASK = 0x03;
+    static constexpr int CMD_BIT = 0x80;
+    static constexpr int CMD_REG_MASK = 0x70;
+    static constexpr int DATA_MASK = 0x0F;
+    static constexpr int CMD_REG_SHIFT = 4;
+    static constexpr int FREQ_HIGH_SHIFT = 4;
+    static constexpr int FREQ_HIGH_MASK = 0x3F;
+    static constexpr int CMD_NOISE_CONFIG_MASK = 0x04;
+    static constexpr int CMD_NOISE_CONFIG_SHIFT = 2;
+    static constexpr int CMD_NOISE_FREQ_MASK = 0x03;
 
     unsigned int tone_lengths[3] = {0, 0, 0};
     unsigned int tone_attenuation[3] = {0, 0, 0};
@@ -286,7 +286,7 @@ struct SN76489A
         return v;
     }
 
-    static const int sample_rate = 44100;
+    static constexpr int sample_rate = 44100;
     static const clk_t max_audio_forward = machine_clock_rate / sample_rate - 1;
     static const size_t audio_buffer_size = sample_rate / 100;
     char audio_buffer[audio_buffer_size];
@@ -322,68 +322,67 @@ struct TMS9918A
     int frame_number{0};
     int write_number{0};
 
-    static const int MEMORY_SIZE = 16384;
-    unsigned char memory[16384];
-    unsigned char registers[64]{};
+    static constexpr int MEMORY_SIZE = 16384;
+    std::array<uint8_t, MEMORY_SIZE> memory{};
+    std::array<uint8_t, 64> registers{};
 
-    static const int REG_A0_A5_MASK = 0x3F;
-    static const int CMD_MASK = 0xC0;
-    static const int CMD_SET_REGISTER = 0x80;
-    static const int CMD_SET_WRITE_ADDRESS = 0x40;
-    static const int CMD_SET_READ_ADDRESS = 0x00;
+    static constexpr int REG_A0_A5_MASK = 0x3F;
+    static constexpr int CMD_MASK = 0xC0;
+    static constexpr int CMD_SET_REGISTER = 0x80;
+    static constexpr int CMD_SET_WRITE_ADDRESS = 0x40;
+    static constexpr int CMD_SET_READ_ADDRESS = 0x00;
 
-    static const int VR0_BITMAP_MASK = 0x02;
-    static const int VR0_EXTVID_MASK = 0x01;
+    static constexpr int VR0_BITMAP_MASK = 0x02;
+    static constexpr int VR0_EXTVID_MASK = 0x01;
 
-    static const int VR1_16K_MASK = 0x80;
-    static const int VR1_BLANK_MASK = 0x40;
-    static const int VR1_INT_MASK = 0x20;
-    static const int VR1_MULTIC_MASK = 0x10;
-    static const int VR1_TEXT_MASK = 0x08;
-    static const int VR1_SIZE4_MASK = 0x02;
-    static const int VR1_MAG2X_MASK = 0x01;
+    static constexpr int VR1_16K_MASK = 0x80;
+    static constexpr int VR1_BLANK_MASK = 0x40;
+    static constexpr int VR1_INT_MASK = 0x20;
+    static constexpr int VR1_MULTIC_MASK = 0x10;
+    static constexpr int VR1_TEXT_MASK = 0x08;
+    static constexpr int VR1_SIZE4_MASK = 0x02;
+    static constexpr int VR1_MAG2X_MASK = 0x01;
 
-    static const int VR2_SCREENIMAGE_MASK = 0x0F;
-    static const int VR2_SCREENIMAGE_SHIFT = 10;
+    static constexpr int VR2_SCREENIMAGE_MASK = 0x0F;
+    static constexpr int VR2_SCREENIMAGE_SHIFT = 10;
 
-    static const int VR3_COLORTABLE_MASK_STANDARD = 0xFF;
-    static const int VR3_COLORTABLE_SHIFT_STANDARD = 6;
+    static constexpr int VR3_COLORTABLE_MASK_STANDARD = 0xFF;
+    static constexpr int VR3_COLORTABLE_SHIFT_STANDARD = 6;
 
-    static const int VR3_COLORTABLE_MASK_BITMAP = 0x80;
-    static const int VR3_COLORTABLE_SHIFT_BITMAP = 6;
+    static constexpr int VR3_COLORTABLE_MASK_BITMAP = 0x80;
+    static constexpr int VR3_COLORTABLE_SHIFT_BITMAP = 6;
 
-    static const int VR3_ADDRESS_MASK_BITMAP = 0x7F;
-    static const int VR3_ADDRESS_MASK_SHIFT = 6;
+    static constexpr int VR3_ADDRESS_MASK_BITMAP = 0x7F;
+    static constexpr int VR3_ADDRESS_MASK_SHIFT = 6;
 
-    static const int VR4_PATTERN_MASK_STANDARD = 0x07;
-    static const int VR4_PATTERN_SHIFT_STANDARD = 11;
+    static constexpr int VR4_PATTERN_MASK_STANDARD = 0x07;
+    static constexpr int VR4_PATTERN_SHIFT_STANDARD = 11;
 
-    static const int VR4_PATTERN_MASK_BITMAP = 0x04;
-    static const int VR4_PATTERN_SHIFT_BITMAP = 11;
+    static constexpr int VR4_PATTERN_MASK_BITMAP = 0x04;
+    static constexpr int VR4_PATTERN_SHIFT_BITMAP = 11;
 
-    static const int VR5_SPRITE_ATTR_MASK = 0x7F;
-    static const int VR5_SPRITE_ATTR_SHIFT = 7;
+    static constexpr int VR5_SPRITE_ATTR_MASK = 0x7F;
+    static constexpr int VR5_SPRITE_ATTR_SHIFT = 7;
 
-    static const int VR6_SPRITE_PATTERN_MASK = 0x07;
-    static const int VR6_SPRITE_PATTERN_SHIFT = 11;
+    static constexpr int VR6_SPRITE_PATTERN_MASK = 0x07;
+    static constexpr int VR6_SPRITE_PATTERN_SHIFT = 11;
 
-    static const int VR7_BD_MASK = 0x0F;
-    static const int VR7_BD_SHIFT = 0;
+    static constexpr int VR7_BD_MASK = 0x0F;
+    static constexpr int VR7_BD_SHIFT = 0;
 
-    static const int VDP_STATUS_INT_BIT = 0x80;
-    static const int VDP_STATUS_COINC_BIT = 0x20;
+    static constexpr int VDP_STATUS_INT_BIT = 0x80;
+    static constexpr int VDP_STATUS_COINC_BIT = 0x20;
 
-    static const int ROW_SHIFT = 5;
-    static const int THIRD_SHIFT = 11;
-    static const int CHARACTER_PATTERN_SHIFT = 3;
-    static const int CHARACTER_COLOR_SHIFT = 3;
-    static const int ADDRESS_MASK_FILL = 0x3F;
+    static constexpr int ROW_SHIFT = 5;
+    static constexpr int THIRD_SHIFT = 11;
+    static constexpr int CHARACTER_PATTERN_SHIFT = 3;
+    static constexpr int CHARACTER_COLOR_SHIFT = 3;
+    static constexpr int ADDRESS_MASK_FILL = 0x3F;
 
-
-    static const int SPRITE_EARLY_CLOCK_MASK = 0x80;
-    static const int SPRITE_COLOR_MASK = 0x0F;
-    static const int SPRITE_NAME_SHIFT = 3;
-    static const int SPRITE_NAME_MASK_SIZE4 = 0xFC;
+    static constexpr int SPRITE_EARLY_CLOCK_MASK = 0x80;
+    static constexpr int SPRITE_COLOR_MASK = 0x0F;
+    static constexpr int SPRITE_NAME_SHIFT = 3;
+    static constexpr int SPRITE_NAME_MASK_SIZE4 = 0xFC;
 
     enum {CMD_PHASE_FIRST, CMD_PHASE_SECOND} cmd_phase = CMD_PHASE_FIRST;
     unsigned char cmd_data = 0x0;
@@ -395,8 +394,6 @@ struct TMS9918A
 
     TMS9918A()
     {
-        memset(memory, 0, MEMORY_SIZE);
-        memset(registers, 0, 64);
     }
 
     void write(int cmd, unsigned char data)
@@ -602,7 +599,7 @@ struct TMS9918A
 
 	    int sprite_count = 32;
 	    for(int i = 0; i < 32; i++) {
-                unsigned char *sprite = memory + sprite_table_address + i * 4;
+                auto sprite = memory.begin() + sprite_table_address + i * 4;
                 if(sprite[0] == 0xD0) {
 		    sprite_count = i;
 		    break;
@@ -612,7 +609,7 @@ struct TMS9918A
             memset(previous_sprite_bits, 0, SCREEN_X * SCREEN_Y);
 
             for(int i = sprite_count - 1; i >= 0; i--) {
-                unsigned char *sprite = memory + sprite_table_address + i * 4;
+                auto sprite = memory.begin() + sprite_table_address + i * 4;
 
                 int sprite_y = sprite[0] + 1;
                 int sprite_x = sprite[1];
@@ -716,17 +713,15 @@ struct ColecoHW : board_base
 
     bool reading_joystick = true;
 
-    // static const int PIC_PORT = 0;
+    static constexpr int VDP_DATA_PORT = 0xBE;
+    static constexpr int VDP_CMD_PORT = 0xBF;
 
-    static const int VDP_DATA_PORT = 0xBE;
-    static const int VDP_CMD_PORT = 0xBF;
+    static constexpr int SN76489A_PORT = 0xFF;
 
-    static const int SN76489A_PORT = 0xFF;
-
-    static const int SWITCH_TO_KEYPAD_PORT = 0x80;
-    static const int SWITCH_TO_JOYSTICK_PORT = 0xC0;
-    static const int CONTROLLER1_PORT = 0xFC;
-    static const int CONTROLLER2_PORT = 0xFF;
+    static constexpr int SWITCH_TO_KEYPAD_PORT = 0x80;
+    static constexpr int SWITCH_TO_JOYSTICK_PORT = 0xC0;
+    static constexpr int CONTROLLER1_PORT = 0xFC;
+    static constexpr int CONTROLLER2_PORT = 0xFF;
 
     ColecoHW() :
         sound(machine_clock_rate)
@@ -1029,7 +1024,7 @@ bool is_breakpoint_triggered(std::vector<BreakPoint>& breakpoints, Z80_STATE* st
 
 struct Debugger
 {
-    ColecoHW* coleco{nullptr};
+    ColecoHW* colecohw{nullptr};
     clk_t& clk;
     std::vector<BreakPoint> breakpoints;
     std::set<int> io_watch;
@@ -1091,8 +1086,8 @@ struct Debugger
         last_was_step = false;
         last_was_jump = false;
     }
-    Debugger(ColecoHW *coleco, clk_t& clk) :
-        coleco(coleco),
+    Debugger(ColecoHW *colecohw, clk_t& clk) :
+        colecohw(colecohw),
         clk(clk)
     {
         ctor();
@@ -2541,7 +2536,7 @@ int main(int argc, char **argv)
     }
 #endif
 
-    aodev = open_ao();
+    ao_device *aodev = open_ao();
     if(aodev == NULL)
         exit(EXIT_FAILURE);
 
@@ -2567,7 +2562,7 @@ int main(int argc, char **argv)
     ROMboard *bios_rom = new ROMboard(0, bios_length, rom_temp);
 
     audio_flush_func audio_flush;
-    audio_flush = [](char *buf, size_t sz){ ao_play(aodev, buf, sz); };
+    audio_flush = [aodev](char *buf, size_t sz){ ao_play(aodev, buf, sz); };
 
     fp = fopen(cart_name, "rb");
     if(fp == NULL) {
@@ -2583,16 +2578,17 @@ int main(int argc, char **argv)
     ROMboard *cart_rom = new ROMboard(0x8000, cart_length, rom_temp);
 
     clk_t clk = 0;
-    ColecoHW* coleco = new ColecoHW();
+    ColecoHW* colecohw = new ColecoHW();
+    VDP = &colecohw->vdp;
 
 #ifdef PROVIDE_DEBUGGER
     Debugger *debugger = NULL;
     if(do_debugger) {
-        debugger = new Debugger(coleco, clk);
+        debugger = new Debugger(colecohw, clk);
     }
 #endif
 
-    boards.push_back(coleco);
+    boards.push_back(colecohw);
     boards.push_back(bios_rom);
     boards.push_back(cart_rom);
     boards.push_back(new RAMboard(0x6000, 0x2000));
@@ -2664,11 +2660,11 @@ int main(int argc, char **argv)
                             if(profiling) printf("VDP scanout %lld\n", real_elapsed_micros.count());
                         }
 
-                        coleco->vdp.vdp_int = true;
+                        colecohw->vdp.vdp_int = true;
                         previous_field_start_clock = clk;
                     }
 
-                    if(coleco->nmi_requested()) {
+                    if(colecohw->nmi_requested()) {
                         if(!nmi_was_requested) {
                             Z80NonMaskableInterrupt (&z80state);
                             nmi_was_requested = true;
@@ -2720,7 +2716,7 @@ int main(int argc, char **argv)
 	if(profiling) printf("idle %lld\n", real_elapsed_micros.count());
 
 	before = std::chrono::system_clock::now();
-        coleco->fill_flush_audio(clk, audio_flush);
+        colecohw->fill_flush_audio(clk, audio_flush);
 	after = std::chrono::system_clock::now();
 	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
 	if(profiling) printf("audio %lld\n", real_elapsed_micros.count());
