@@ -1,57 +1,49 @@
 TODO
-move vdp_int and coinc bits to VDP status byte, test them there, return that byte and clear on read
-implement fifth sprite check & status register content
-make IO read/write decoding match schematic
+* move vdp_int and coinc bits to VDP status byte, test them there, return that byte and clear on read
+* implement fifth sprite check & status register content
+* make IO read/write decoding match schematic
 
-No known issues or very minor issues but need to verify against Youtube or real thing or another simulator
-    Donkey Kong
-    Donkey Kong Jr.
-    Zaxxon
-    Smurf
-    Pitfall!
+No or very minor issues but need to verify another source
+* Q-bert (but known to make unknown command 0xC0 to VDP, ignored)
+* Pitfall II - Lost Caverns
+  * a little chirping during soundtrack - am I not doing silencing correctly?
+* Mr. Do!
+* Dig Dug
+* Roc 'N Rope
+* Defender
+* Donkey Kong
+* Donkey Kong Jr.
+* Zaxxon
+* Smurf
+* Pitfall!
+* Looping
+* Miner 2049er
+  * weird tone at beginning
+* Choplifter!
+* Burgertime 1983 prototype
+* Burgertime
+* Spy Hunter Prototype
+* Spy Hunter
+* Popeye
+  * strange high-pitched whistle when there seems like there should be a rest between notes during play
+* Super Cross Force
+  * there's no animation during explosion - is that normal?
+* Beamrider
+  * stars show up after dying - is that normal?
 
 Works with minor issues
-    none
+* Moon Patrol
+  * title screen is missing the name 
+* Jungle Hunt
+  * occasionally aborts with interrupted VDP command
 
 Known serious issues preventing game play
-    Jungle Hunt
-        incorrect rendering of vines
-        aborts with interrupted VDP command
-    Frogger - aborts with unknown IO
+* none
 
 Wontfix
-    Slither - requires Roller Controller (trackball)
+* Frogger
+  * repeated note after drawing initial screen, no recognition of game start
+* Slither - requires Roller Controller (trackball)
 
 Unknown
-    Super Action Controller Test Cartridge (1983) (Nuvatec).rom
-
-Need to re-test
-    Miner 2049er
-    Q-bert
-    Mr. Do!
-    Roc 'N Rope
-    Burgertime 1983 prototype
-    Burgertime
-    Choplifter!
-    Moon Patrol [Prototype A1]
-    Spy Hunter Prototype
-    Spy Hunter
-    Popeye
-        strange high-pitched whistle when there seems like there should be a rest between notes during play
-    Pitfall II - Lost Caverns
-        a little chirping during soundtrack - am I not doing silencing correctly?
-    Super Cross Force
-        there's no animation during explosion - is that normal?
-    Beamrider
-        stars show up after dying - is that normal?
-    Defender
-    Dig Dug
-
-Maybe 2 or 3 bugs:
-    * controller read issues, e.g. Defender, Dig Dug, Slither
-    * rendering at least one video mode incorrectly, e.g. Jungle Hunt, Pitfall
-    * some kind of failure to read interrupt, e.g. Frogger
-
-need to line up VDP interrupt and scanout more correctly - I think this is what's causing corruption in Jungle Hunt swimming - do scanout to texture every 16.67ms of simulation time
-
-make different scanout code for different modes & then sprite code
+* Super Action Controller Test Cartridge (1983) (Nuvatec).rom
