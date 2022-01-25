@@ -5,8 +5,6 @@ TODO
 
 | Cartridge | Status | Notes |
 | --------- | ------ | ----- |
-| Q-bert | playable | (but known to make unknown command 0xC0 to VDP, ignored) |
-| Pitfall II - Lost Caverns | playable | a little chirping during soundtrack - am I not doing silencing correctly? |
 | Mr. Do! | playable | |
 | Dig Dug | playable | |
 | Roc 'N Rope | playable | |
@@ -17,12 +15,14 @@ TODO
 | Smurf | playable | |
 | Pitfall! | playable | |
 | Looping | playable | |
-| Miner 2049er | playable | weird tone at beginning |
 | Choplifter! | playable | |
 | Burgertime 1983 prototype | playable | |
 | Burgertime | playable | |
 | Spy Hunter Prototype | playable | |
 | Spy Hunter | playable | |
+| Q-bert | playable | (but known to make unknown command 0xC0 to VDP, ignored) |
+| Pitfall II - Lost Caverns | playable | a little chirping during soundtrack - am I not doing silencing correctly? |
+| Miner 2049er | playable | weird tone at beginning |
 | Popeye | playable | strange high-pitched whistle when there seems like there should be a rest between notes during play |
 | Super Cross Force | playable | there's no animation during explosion - is that normal? |
 | Beamrider | playable | stars show up after dying - is that normal? |
