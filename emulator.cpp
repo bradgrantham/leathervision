@@ -88,6 +88,57 @@ uint8_t GetKeypadState(ControllerIndex controller)
     return data;
 }
 
+ao_device *aodev;
+constexpr int audio_rate = 44100;
+
+ao_device *open_ao(int rate)
+{
+    ao_device *device;
+    ao_sample_format format;
+    int default_driver;
+
+    ao_initialize();
+
+    default_driver = ao_default_driver_id();
+
+    memset(&format, 0, sizeof(format));
+    format.bits = 8;
+    format.channels = 1;
+    format.rate = rate;
+    format.byte_format = AO_FMT_LITTLE;
+
+    /* -- Open driver -- */
+    device = ao_open_live(default_driver, &format, NULL /* no options */);
+    if (device == NULL) {
+        fprintf(stderr, "Error opening libao audio device.\n");
+        return nullptr;
+    }
+    return device;
+}
+
+
+void start()
+{
+    aodev = open_ao(audio_rate);
+    if(aodev == NULL)
+        exit(EXIT_FAILURE);
+}
+
+int get_audio_sample_rate()
+{
+    return audio_rate;
+}
+
+size_t get_preferred_audio_buffer_size_samples()
+{
+    return audio_rate / 100;
+}
+
+void enqueue_audio_samples(uint8_t *buf, size_t sz)
+{
+    ao_play(aodev, (char*)buf, sz);
+}
+
 };
 
 Z80_STATE z80state;
@@ -151,17 +202,7 @@ void nybble_to_color(unsigned int nybble, unsigned char color[3])
     color[2] = nybbles_to_color[nybble][2];
 }
 
-typedef std::function<void (char *audiobuffer, size_t dist)> audio_flush_func;
-audio_flush_func audio_flush;
-
-unsigned int att_table[] = {
-    256, 203, 161, 128, 101, 80, 64, 51, 40, 32, 25, 20, 16, 12, 10, 0,
-};
-
-unsigned char scale_by_attenuation_flags(unsigned int att, unsigned char value)
-{
-    return int(value) * att_table[att] / 256;
-}
+typedef std::function<void (uint8_t *audiobuffer, size_t dist)> audio_flush_func;
 
 struct SN76489A
 {
@@ -181,6 +222,8 @@ struct SN76489A
     static constexpr int CMD_NOISE_CONFIG_SHIFT = 2;
     static constexpr int CMD_NOISE_FREQ_MASK = 0x03;
 
+    int sample_rate;
+
     unsigned int tone_lengths[3] = {0, 0, 0};
     unsigned int tone_attenuation[3] = {0, 0, 0};
 
@@ -198,9 +241,19 @@ struct SN76489A
 
     clk_t previous_clock{0};
 
-    SN76489A(unsigned int clock_rate_) :
-        clock_rate(clock_rate_)
+    clk_t max_audio_forward;
+    size_t audio_buffer_size;
+    std::vector<uint8_t> audio_buffer;
+    clk_t audio_buffer_next_sample{0};
+
+    SN76489A(unsigned int clock_rate, int sample_rate, size_t audio_buffer_size) :
+        clock_rate(clock_rate),
+        sample_rate(sample_rate),
+        audio_buffer_size(audio_buffer_size)
     {
+        max_audio_forward = machine_clock_rate / sample_rate - 1;
+        audio_buffer.resize(audio_buffer_size);
+
         for(int i = 0; i < 3; i++) {
             tone_counters[i] = 0;
             tone_bit[i] = 0;
@@ -308,9 +361,18 @@ struct SN76489A
         previous_clock = clk;
     }
 
-    unsigned char get_level()
+    static uint8_t scale_by_attenuation_flags(unsigned int att, uint8_t value)
     {
-        unsigned char v =
+        const static uint16_t att_table[] = {
+            256, 203, 161, 128, 101, 80, 64, 51, 40, 32, 25, 20, 16, 12, 10, 0,
+        };
+
+        return value * att_table[att] / 256;
+    }
+
+    uint8_t get_level()
+    {
+        uint8_t v =
             scale_by_attenuation_flags(tone_attenuation[0], tone_bit[0] ? 0 : 64) + 
             + scale_by_attenuation_flags(tone_attenuation[1], tone_bit[1] ? 0 : 64)
             + scale_by_attenuation_flags(tone_attenuation[2], tone_bit[2] ? 0 : 64)
@@ -319,12 +381,6 @@ struct SN76489A
 
         return v;
     }
-
-    static constexpr int sample_rate = 44100;
-    static const clk_t max_audio_forward = machine_clock_rate / sample_rate - 1;
-    static const size_t audio_buffer_size = sample_rate / 100;
-    char audio_buffer[audio_buffer_size];
-    clk_t audio_buffer_next_sample = 0;
 
     void generate_audio(clk_t clk, audio_flush_func audio_flush)
     {
@@ -339,7 +395,7 @@ struct SN76489A
                 audio_buffer[audio_buffer_next_sample++] = get_level();
 
                 if(audio_buffer_next_sample == audio_buffer_size) {
-                    audio_flush(audio_buffer, audio_buffer_size);
+                    audio_flush(audio_buffer.data(), audio_buffer_size);
                     audio_buffer_next_sample = 0;
                 }
             }
@@ -767,8 +823,8 @@ struct ColecoHW : board_base
     static constexpr int CONTROLLER1_PORT = 0xFC;
     static constexpr int CONTROLLER2_PORT = 0xFF;
 
-    ColecoHW() :
-        sound(machine_clock_rate)
+    ColecoHW(int sample_rate, size_t audio_buffer_size) :
+        sound(machine_clock_rate, sample_rate, audio_buffer_size)
     {
         VDP = &vdp;
     }
@@ -1938,31 +1994,6 @@ const int CONTROLLER1_KEYPAD_9 = 0x04;
 const int CONTROLLER1_KEYPAD_asterisk = 0x06;
 const int CONTROLLER1_KEYPAD_pound = 0x09;
 
-ao_device *open_ao()
-{
-    ao_device *device;
-    ao_sample_format format;
-    int default_driver;
-
-    ao_initialize();
-
-    default_driver = ao_default_driver_id();
-
-    memset(&format, 0, sizeof(format));
-    format.bits = 8;
-    format.channels = 1;
-    format.rate = 44100;
-    format.byte_format = AO_FMT_LITTLE;
-
-    /* -- Open driver -- */
-    device = ao_open_live(default_driver, &format, NULL /* no options */);
-    if (device == NULL) {
-        fprintf(stderr, "Error opening libao audio device.\n");
-        return nullptr;
-    }
-    return device;
-}
-
 using namespace COLECOinterface;
 
 static GLFWwindow* my_window;
@@ -2566,11 +2597,8 @@ int main(int argc, char **argv)
     }
 #endif
 
-    ao_device *aodev = open_ao();
-    if(aodev == NULL)
-        exit(EXIT_FAILURE);
-
     initialize_ui();
+    COLECOinterface::start();
 
     static unsigned char rom_temp[65536];
     FILE *fp;
@@ -2591,8 +2619,7 @@ int main(int argc, char **argv)
     fclose(fp);
     ROMboard *bios_rom = new ROMboard(0, bios_length, rom_temp);
 
-    audio_flush_func audio_flush;
-    audio_flush = [aodev](char *buf, size_t sz){ ao_play(aodev, buf, sz); };
+    audio_flush_func audio_flush = [](uint8_t *buf, size_t sz){ COLECOinterface::enqueue_audio_samples(buf, sz); };
 
     fp = fopen(cart_name, "rb");
     if(fp == NULL) {
@@ -2608,7 +2635,7 @@ int main(int argc, char **argv)
     ROMboard *cart_rom = new ROMboard(0x8000, cart_length, rom_temp);
 
     clk_t clk = 0;
-    ColecoHW* colecohw = new ColecoHW();
+    ColecoHW* colecohw = new ColecoHW(COLECOinterface::get_audio_sample_rate(), COLECOinterface::get_preferred_audio_buffer_size_samples());
     VDP = &colecohw->vdp;
 
 #ifdef PROVIDE_DEBUGGER
