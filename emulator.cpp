@@ -408,14 +408,6 @@ struct SN76489A
 
 struct TMS9918A
 {
-    bool cmd_started_in_nmi{false};
-    int frame_number{0};
-    int write_number{0};
-
-    static constexpr int MEMORY_SIZE = 16384;
-    std::array<uint8_t, MEMORY_SIZE> memory{};
-    std::array<uint8_t, 64> registers{};
-
     static constexpr int REG_A0_A5_MASK = 0x3F;
     static constexpr int CMD_MASK = 0xC0;
     static constexpr int CMD_SET_REGISTER = 0x80;
@@ -460,7 +452,7 @@ struct TMS9918A
     static constexpr int VR7_BD_MASK = 0x0F;
     static constexpr int VR7_BD_SHIFT = 0;
 
-    static constexpr int VDP_STATUS_INT_BIT = 0x80;
+    static constexpr int VDP_STATUS_VSYNC_BIT = 0x80;
     static constexpr int VDP_STATUS_COINC_BIT = 0x20;
 
     static constexpr int ROW_SHIFT = 5;
@@ -473,14 +465,24 @@ struct TMS9918A
     static constexpr int SPRITE_COLOR_MASK = 0x0F;
     static constexpr int SPRITE_NAME_SHIFT = 3;
     static constexpr int SPRITE_NAME_MASK_SIZE4 = 0xFC;
+    bool cmd_started_in_nmi{false};
+    int frame_number{0};
+    int write_number{0};
+
+    static constexpr int MEMORY_SIZE = 16384;
+    std::array<uint8_t, MEMORY_SIZE> memory{};
+    std::array<uint8_t, 64> registers{};
+    uint8_t status_register{0};
+
+    void vsync()
+    {
+        status_register |= VDP_STATUS_VSYNC_BIT;
+    }
 
     enum {CMD_PHASE_FIRST, CMD_PHASE_SECOND} cmd_phase = CMD_PHASE_FIRST;
     unsigned char cmd_data = 0x0;
     unsigned int read_address = 0x0;
     unsigned int write_address = 0x0;
-
-    bool vdp_int{false};
-    bool sprite_int{false};
 
     TMS9918A()
     {
@@ -490,7 +492,7 @@ struct TMS9918A
     {
         if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, z80state.in_nmi);
         if(do_save_images_on_vdp_write) { /* debug */
-            create_image(framebuffer);
+            create_image_and_return_flags(registers, memory, framebuffer);
             char name[512];
             sprintf(name, "frame_%04d_%05d_%d_%02X.ppm", frame_number, write_number, cmd, data);
             FILE *fp = fopen(name, "w");
@@ -557,7 +559,7 @@ struct TMS9918A
 
     }
 
-    unsigned char read(int cmd)
+    uint8_t read(int cmd)
     {
         if(cmd) {
             if(cmd_phase == CMD_PHASE_SECOND) {
@@ -569,21 +571,17 @@ struct TMS9918A
                 abort();
             }
             cmd_phase = CMD_PHASE_FIRST;
-            unsigned char data =
-                (vdp_int ? VDP_STATUS_INT_BIT : 0x0) |
-                (sprite_int ? VDP_STATUS_COINC_BIT : 0x0)
-                ;
-            vdp_int = false;
-            sprite_int = false;
+            uint8_t data = status_register;
+            status_register &= ~(VDP_STATUS_VSYNC_BIT | VDP_STATUS_COINC_BIT);
             return data;
         } else {
-            unsigned char data = memory[read_address++];
+            uint8_t data = memory[read_address++];
             read_address = read_address % MEMORY_SIZE;
             return data;
         }
     }
 
-    bool get_color(int x, int y, unsigned char color[3])
+    static bool get_color(int x, int y, unsigned char color[3], const std::array<uint8_t, 64>& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
     {
 	if((registers[1] & VR1_BLANK_MASK) == 0) {
 	    nybble_to_color((registers[7] & VR7_BD_MASK) >> VR7_BD_SHIFT, color);
@@ -666,16 +664,18 @@ struct TMS9918A
 	return sprites_valid; 
     }
 
-    void create_image(unsigned char image[SCREEN_X * SCREEN_Y * 4])
+    static uint8_t create_image_and_return_flags(const std::array<uint8_t, 64>& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, unsigned char image[SCREEN_X * SCREEN_Y * 4])
     {
         static unsigned char previous_sprite_bits[SCREEN_Y][SCREEN_X];
+
+        uint8_t flags_set = 0;
 
 	bool sprites_valid;
 
         for(int row = 0; row < SCREEN_Y; row++) {
             for(int col = 0; col < SCREEN_X; col++) {
                 unsigned char color[3];
-                sprites_valid = get_color(col, row, color);
+                sprites_valid = get_color(col, row, color, registers, memory);
                 unsigned char *pixel = image + (row * SCREEN_X + col) * 4;
                 for(int c = 0; c < 3; c++)
                     pixel[c] = color[c];
@@ -754,7 +754,10 @@ struct TMS9918A
 			    int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
 			    int bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
 			    if(bit) {
-				sprite_int = sprite_int | (previous_sprite_bits[y][x] != 0);
+                                if(previous_sprite_bits[y][x] != 0) {
+                                    flags_set |= VDP_STATUS_COINC_BIT;
+                                    // XXX should also set the sprite collision number bitfield
+                                }
 				nybble_to_color(sprite_color, color);
                                 previous_sprite_bits[y][x] = 0xFF;
 			    }
@@ -764,7 +767,10 @@ struct TMS9918A
 			    int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
 			    int bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
 			    if(bit) {
-				sprite_int = sprite_int | (previous_sprite_bits[y][x] != 0);
+                                if(previous_sprite_bits[y][x] != 0) {
+                                    flags_set |= VDP_STATUS_COINC_BIT;
+                                    // XXX should also set the sprite collision number bitfield
+                                }
 				nybble_to_color(sprite_color, color);
                                 previous_sprite_bits[y][x] = 0xFF;
 			    }
@@ -776,6 +782,7 @@ struct TMS9918A
                 }
             }
         }
+        return flags_set;
     }
 
     void perform_scanout(unsigned char image[SCREEN_X * SCREEN_Y * 4])
@@ -785,26 +792,16 @@ struct TMS9918A
         if(debug & DEBUG_SCANOUT) {
             printf("scanout frame %d\n", frame_number);
         }
-        create_image(image);
+        status_register |= create_image_and_return_flags(registers, memory, image);
     }
 
-    bool nmi_requested()
+    bool nmi_required()
     {
-        return (registers[1] & VR1_INT_MASK) && vdp_int;
+        return (registers[1] & VR1_INT_MASK) && (status_register & VDP_STATUS_VSYNC_BIT);
     }
 };
 
 TMS9918A *VDP;
-
-// struct JoystickState
-// {
-    // bool n, s, e, w, rightTrigger;
-// };
-// 
-// struct KeypadState
-// {
-    // bool matrix, leftTrigger;
-// };
 
 struct ColecoHW : board_base
 {
@@ -968,9 +965,9 @@ struct ColecoHW : board_base
     virtual void pause(void) {};
     virtual void resume(void) {};
 
-    virtual bool nmi_requested()
+    virtual bool nmi_required()
     {
-        return vdp.nmi_requested();
+        return vdp.nmi_required();
     }
 
     void fill_flush_audio(clk_t clk, audio_flush_func audio_flush)
@@ -2666,7 +2663,7 @@ int main(int argc, char **argv)
 #endif
 
     std::chrono::time_point<std::chrono::system_clock> then = std::chrono::system_clock::now();
-    bool nmi_was_requested = false;
+    bool nmi_was_issued = false;
 
     while(!quit)
     {
@@ -2717,17 +2714,17 @@ int main(int argc, char **argv)
                             if(profiling) printf("VDP scanout %lld\n", real_elapsed_micros.count());
                         }
 
-                        colecohw->vdp.vdp_int = true;
+                        colecohw->vdp.vsync();
                         previous_field_start_clock = clk;
                     }
 
-                    if(colecohw->nmi_requested()) {
-                        if(!nmi_was_requested) {
+                    if(colecohw->nmi_required()) {
+                        if(!nmi_was_issued) {
                             Z80NonMaskableInterrupt (&z80state);
-                            nmi_was_requested = true;
+                            nmi_was_issued = true;
                         }
                     } else {
-                        nmi_was_requested = false;
+                        nmi_was_issued = false;
                     }
 		}
             }

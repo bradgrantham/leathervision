@@ -4,6 +4,7 @@
 namespace COLECOinterface
 {
 
+
 enum EventType
 {
     NONE, RESET, SPEED, QUIT, PAUSE,
