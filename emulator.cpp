@@ -406,65 +406,282 @@ struct SN76489A
     }
 };
 
-struct TMS9918A
+namespace TMS9918A::constants
 {
-    static constexpr int REG_A0_A5_MASK = 0x3F;
-    static constexpr int CMD_MASK = 0xC0;
-    static constexpr int CMD_SET_REGISTER = 0x80;
-    static constexpr int CMD_SET_WRITE_ADDRESS = 0x40;
-    static constexpr int CMD_SET_READ_ADDRESS = 0x00;
 
-    static constexpr int VR0_BITMAP_MASK = 0x02;
-    static constexpr int VR0_EXTVID_MASK = 0x01;
+static constexpr int REG_A0_A5_MASK = 0x3F;
+static constexpr int CMD_MASK = 0xC0;
+static constexpr int CMD_SET_REGISTER = 0x80;
+static constexpr int CMD_SET_WRITE_ADDRESS = 0x40;
+static constexpr int CMD_SET_READ_ADDRESS = 0x00;
 
-    static constexpr int VR1_16K_MASK = 0x80;
-    static constexpr int VR1_BLANK_MASK = 0x40;
-    static constexpr int VR1_INT_MASK = 0x20;
-    static constexpr int VR1_MULTIC_MASK = 0x10;
-    static constexpr int VR1_TEXT_MASK = 0x08;
-    static constexpr int VR1_SIZE4_MASK = 0x02;
-    static constexpr int VR1_MAG2X_MASK = 0x01;
+static constexpr int VR0_BITMAP_MASK = 0x02;
+[[maybe_unused]] static constexpr int VR0_EXTVID_MASK = 0x01;
 
-    static constexpr int VR2_SCREENIMAGE_MASK = 0x0F;
-    static constexpr int VR2_SCREENIMAGE_SHIFT = 10;
+[[maybe_unused]] static constexpr int VR1_16K_MASK = 0x80; 
+static constexpr int VR1_BLANK_MASK = 0x40;
+static constexpr int VR1_INT_MASK = 0x20;
+static constexpr int VR1_MULTIC_MASK = 0x10;
+static constexpr int VR1_TEXT_MASK = 0x08;
+static constexpr int VR1_SIZE4_MASK = 0x02;
+static constexpr int VR1_MAG2X_MASK = 0x01;
 
-    static constexpr int VR3_COLORTABLE_MASK_STANDARD = 0xFF;
-    static constexpr int VR3_COLORTABLE_SHIFT_STANDARD = 6;
+static constexpr int VR2_SCREENIMAGE_MASK = 0x0F;
+static constexpr int VR2_SCREENIMAGE_SHIFT = 10;
 
-    static constexpr int VR3_COLORTABLE_MASK_BITMAP = 0x80;
-    static constexpr int VR3_COLORTABLE_SHIFT_BITMAP = 6;
+static constexpr int VR3_COLORTABLE_MASK_STANDARD = 0xFF;
+static constexpr int VR3_COLORTABLE_SHIFT_STANDARD = 6;
 
-    static constexpr int VR3_ADDRESS_MASK_BITMAP = 0x7F;
-    static constexpr int VR3_ADDRESS_MASK_SHIFT = 6;
+static constexpr int VR3_COLORTABLE_MASK_BITMAP = 0x80;
+static constexpr int VR3_COLORTABLE_SHIFT_BITMAP = 6;
 
-    static constexpr int VR4_PATTERN_MASK_STANDARD = 0x07;
-    static constexpr int VR4_PATTERN_SHIFT_STANDARD = 11;
+static constexpr int VR3_ADDRESS_MASK_BITMAP = 0x7F;
+static constexpr int VR3_ADDRESS_MASK_SHIFT = 6;
 
-    static constexpr int VR4_PATTERN_MASK_BITMAP = 0x04;
-    static constexpr int VR4_PATTERN_SHIFT_BITMAP = 11;
+static constexpr int VR4_PATTERN_MASK_STANDARD = 0x07;
+static constexpr int VR4_PATTERN_SHIFT_STANDARD = 11;
 
-    static constexpr int VR5_SPRITE_ATTR_MASK = 0x7F;
-    static constexpr int VR5_SPRITE_ATTR_SHIFT = 7;
+static constexpr int VR4_PATTERN_MASK_BITMAP = 0x04;
+static constexpr int VR4_PATTERN_SHIFT_BITMAP = 11;
 
-    static constexpr int VR6_SPRITE_PATTERN_MASK = 0x07;
-    static constexpr int VR6_SPRITE_PATTERN_SHIFT = 11;
+static constexpr int VR5_SPRITE_ATTR_MASK = 0x7F;
+static constexpr int VR5_SPRITE_ATTR_SHIFT = 7;
 
-    static constexpr int VR7_BD_MASK = 0x0F;
-    static constexpr int VR7_BD_SHIFT = 0;
+static constexpr int VR6_SPRITE_PATTERN_MASK = 0x07;
+static constexpr int VR6_SPRITE_PATTERN_SHIFT = 11;
 
-    static constexpr int VDP_STATUS_VSYNC_BIT = 0x80;
-    static constexpr int VDP_STATUS_COINC_BIT = 0x20;
+static constexpr int VR7_BD_MASK = 0x0F;
+static constexpr int VR7_BD_SHIFT = 0;
 
-    static constexpr int ROW_SHIFT = 5;
-    static constexpr int THIRD_SHIFT = 11;
-    static constexpr int CHARACTER_PATTERN_SHIFT = 3;
-    static constexpr int CHARACTER_COLOR_SHIFT = 3;
-    static constexpr int ADDRESS_MASK_FILL = 0x3F;
+static constexpr int VDP_STATUS_VSYNC_BIT = 0x80;
+static constexpr int VDP_STATUS_COINC_BIT = 0x20;
 
-    static constexpr int SPRITE_EARLY_CLOCK_MASK = 0x80;
-    static constexpr int SPRITE_COLOR_MASK = 0x0F;
-    static constexpr int SPRITE_NAME_SHIFT = 3;
-    static constexpr int SPRITE_NAME_MASK_SIZE4 = 0xFC;
+static constexpr int ROW_SHIFT = 5;
+static constexpr int THIRD_SHIFT = 11;
+static constexpr int CHARACTER_PATTERN_SHIFT = 3;
+static constexpr int CHARACTER_COLOR_SHIFT = 3;
+static constexpr int ADDRESS_MASK_FILL = 0x3F;
+
+static constexpr int SPRITE_EARLY_CLOCK_MASK = 0x80;
+static constexpr int SPRITE_COLOR_MASK = 0x0F;
+static constexpr int SPRITE_NAME_SHIFT = 3;
+static constexpr int SPRITE_NAME_MASK_SIZE4 = 0xFC;
+
+};
+
+template <size_t MEMORY_SIZE>
+static bool get_color(int x, int y, unsigned char color[3], const std::array<uint8_t, 64>& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+{
+    using namespace TMS9918A::constants;
+    if((registers[1] & VR1_BLANK_MASK) == 0) {
+        nybble_to_color((registers[7] & VR7_BD_MASK) >> VR7_BD_SHIFT, color);
+        return false;
+    }
+
+    bool bitmap_mode = (registers[0] & VR0_BITMAP_MASK);
+    bool text_mode = (registers[1] & VR1_TEXT_MASK);
+    bool multicolor_mode = (registers[1] & VR1_MULTIC_MASK);
+
+    color[0] = 0;
+    color[1] = 0;
+    color[2] = 0;
+
+    int col = x / 8;
+    int row = y / 8;
+    int pattern_col = x % 8;
+    int pattern_row = y % 8;
+
+    int which_color = 8;
+    int pattern_address;
+    int color_address;
+
+    int screen_address = ((registers[2] & VR2_SCREENIMAGE_MASK) << VR2_SCREENIMAGE_SHIFT) | (row << ROW_SHIFT) | col;
+    unsigned char pattern_name = memory[screen_address];
+
+    bool sprites_valid = false;
+
+    if(!bitmap_mode && !text_mode && !multicolor_mode) {
+        // Standard mode
+
+        pattern_address = ((registers[4] & VR4_PATTERN_MASK_STANDARD) << VR4_PATTERN_SHIFT_STANDARD) | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row;
+
+        color_address = ((registers[3] & VR3_COLORTABLE_MASK_STANDARD) << VR3_COLORTABLE_SHIFT_STANDARD) | (pattern_name >> CHARACTER_COLOR_SHIFT);
+
+        sprites_valid = true;
+
+    } else if(bitmap_mode && !text_mode && !multicolor_mode) {
+        // bitmap mode
+
+        int third = (row / 8) << THIRD_SHIFT;
+
+        if(true) {
+
+            int address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
+
+            pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
+
+            color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
+
+        } else { 
+            pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) | pattern_row;
+            color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row);
+        }
+
+        sprites_valid = true;
+
+    } else {
+
+        printf("unhandled video mode %d %d %d\n",
+            bitmap_mode ? 1 : 0,
+            text_mode ? 1 : 0,
+            multicolor_mode ? 1 : 0);
+
+        color[0] = 255;
+        color[1] = 0;
+        color[2] = 0;
+        return false;
+        // abort();
+    }
+
+    int bit = memory[pattern_address] & (0x80 >> pattern_col);
+
+    unsigned int colortable = memory[color_address];
+    
+    which_color = bit ? ((colortable >> 4) & 0xf) : (colortable & 0xf);
+
+    nybble_to_color(which_color, color);
+
+    return sprites_valid; 
+}
+
+template <size_t MEMORY_SIZE>
+static uint8_t create_image_and_return_flags(const std::array<uint8_t, 64>& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, unsigned char image[SCREEN_X * SCREEN_Y * 4])
+{
+    using namespace TMS9918A::constants;
+    static unsigned char previous_sprite_bits[SCREEN_Y][SCREEN_X];
+
+    uint8_t flags_set = 0;
+
+    bool sprites_valid;
+
+    for(int row = 0; row < SCREEN_Y; row++) {
+        for(int col = 0; col < SCREEN_X; col++) {
+            unsigned char color[3];
+            sprites_valid = get_color(col, row, color, registers, memory);
+            unsigned char *pixel = image + (row * SCREEN_X + col) * 4;
+            for(int c = 0; c < 3; c++)
+                pixel[c] = color[c];
+        }
+    }
+
+    if(sprites_valid) {
+        int sprite_table_address = (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
+        bool mag2x = registers[1] & VR1_MAG2X_MASK;
+        bool size4 = registers[1] & VR1_SIZE4_MASK;
+
+        int sprite_count = 32;
+        for(int i = 0; i < 32; i++) {
+            auto sprite = memory.begin() + sprite_table_address + i * 4;
+            if(sprite[0] == 0xD0) {
+                sprite_count = i;
+                break;
+            }
+        }
+
+        memset(previous_sprite_bits, 0, SCREEN_X * SCREEN_Y);
+
+        for(int i = sprite_count - 1; i >= 0; i--) {
+            auto sprite = memory.begin() + sprite_table_address + i * 4;
+
+            int sprite_y = sprite[0] + 1;
+            int sprite_x = sprite[1];
+            int sprite_name = sprite[2];
+            bool sprite_earlyclock = sprite[3] & SPRITE_EARLY_CLOCK_MASK;
+            int sprite_color = sprite[3] & SPRITE_COLOR_MASK;
+
+            // printf("sprite %d: %d %d %d %d\n", i, sprite_x, sprite_y, sprite_name, sprite_color);
+
+            if(sprite_earlyclock) {
+                sprite_x -= 32;
+            }
+
+            int size_pixels = 8;
+            if(mag2x) {
+                size_pixels *= 2;
+            }
+
+            if(size4) {
+                size_pixels *= 2;
+            }
+
+            int start_x = std::max(0, sprite_x);
+            int start_y = std::max(0, sprite_y);
+            int end_x = std::min(sprite_x + size_pixels, SCREEN_X) - 1;
+            int end_y = std::min(sprite_y + size_pixels, SCREEN_Y) - 1;
+
+            for(int y = start_y; y <= end_y; y++) {
+                for(int x = start_x; x <= end_x; x++) {
+                    unsigned char color[3];
+                    unsigned char *pixel = image + (y * SCREEN_X + x) * 4;
+                    for(int c = 0; c < 3; c++) {
+                        color[c] = pixel[c];
+                    }
+
+                    int within_sprite_x, within_sprite_y;
+
+                    if(mag2x) {
+                        within_sprite_x = (x - sprite_x) / 2;
+                        within_sprite_y = (y - sprite_y) / 2;
+                    } else {
+                        within_sprite_x = x - sprite_x;
+                        within_sprite_y = y - sprite_y;
+                    }
+
+                    if(size4) {
+
+                        int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
+                        int within_quadrant_y = within_sprite_y % 8;
+                        int within_quadrant_x = within_sprite_x % 8;
+                        int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
+                        int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
+                        int bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
+                        if(bit) {
+                            if(previous_sprite_bits[y][x] != 0) {
+                                flags_set |= VDP_STATUS_COINC_BIT;
+                                // XXX should also set the sprite collision number bitfield
+                            }
+                            nybble_to_color(sprite_color, color);
+                            previous_sprite_bits[y][x] = 0xFF;
+                        }
+
+                    } else {
+
+                        int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
+                        int bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
+                        if(bit) {
+                            if(previous_sprite_bits[y][x] != 0) {
+                                flags_set |= VDP_STATUS_COINC_BIT;
+                                // XXX should also set the sprite collision number bitfield
+                            }
+                            nybble_to_color(sprite_color, color);
+                            previous_sprite_bits[y][x] = 0xFF;
+                        }
+                    }
+                    for(int c = 0; c < 3; c++) {
+                        pixel[c] = color[c];
+                    }
+                }
+            }
+        }
+    }
+    return flags_set;
+}
+
+template <size_t MEMORY_SIZE>
+static uint8_t create_image_and_return_flags(const std::array<uint8_t, 64>& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, unsigned char image[SCREEN_X * SCREEN_Y * 4]);
+
+struct TMS9918AEmulator
+{
     bool cmd_started_in_nmi{false};
     int frame_number{0};
     int write_number{0};
@@ -474,24 +691,30 @@ struct TMS9918A
     std::array<uint8_t, 64> registers{};
     uint8_t status_register{0};
 
-    void vsync()
-    {
-        status_register |= VDP_STATUS_VSYNC_BIT;
-    }
-
     enum {CMD_PHASE_FIRST, CMD_PHASE_SECOND} cmd_phase = CMD_PHASE_FIRST;
     unsigned char cmd_data = 0x0;
     unsigned int read_address = 0x0;
     unsigned int write_address = 0x0;
 
-    TMS9918A()
+    TMS9918AEmulator()
     {
     }
 
+    void vsync()
+    {
+        using namespace TMS9918A::constants;
+        status_register |= VDP_STATUS_VSYNC_BIT;
+    }
+
+
     void write(int cmd, unsigned char data)
     {
+        using namespace TMS9918A::constants;
         if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, z80state.in_nmi);
         if(do_save_images_on_vdp_write) { /* debug */
+
+            // XXX
+
             create_image_and_return_flags(registers, memory, framebuffer);
             char name[512];
             sprintf(name, "frame_%04d_%05d_%d_%02X.ppm", frame_number, write_number, cmd, data);
@@ -561,6 +784,7 @@ struct TMS9918A
 
     uint8_t read(int cmd)
     {
+        using namespace TMS9918A::constants;
         if(cmd) {
             if(cmd_phase == CMD_PHASE_SECOND) {
                 if(z80state.in_nmi) {
@@ -581,212 +805,9 @@ struct TMS9918A
         }
     }
 
-    static bool get_color(int x, int y, unsigned char color[3], const std::array<uint8_t, 64>& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
-    {
-	if((registers[1] & VR1_BLANK_MASK) == 0) {
-	    nybble_to_color((registers[7] & VR7_BD_MASK) >> VR7_BD_SHIFT, color);
-	    return false;
-	}
-
-        bool bitmap_mode = (registers[0] & VR0_BITMAP_MASK);
-        bool text_mode = (registers[1] & VR1_TEXT_MASK);
-        bool multicolor_mode = (registers[1] & VR1_MULTIC_MASK);
-
-        color[0] = 0;
-        color[1] = 0;
-        color[2] = 0;
-
-        int col = x / 8;
-        int row = y / 8;
-        int pattern_col = x % 8;
-        int pattern_row = y % 8;
-
-        int which_color = 8;
-        int pattern_address;
-        int color_address;
-
-        int screen_address = ((registers[2] & VR2_SCREENIMAGE_MASK) << VR2_SCREENIMAGE_SHIFT) | (row << ROW_SHIFT) | col;
-        unsigned char pattern_name = memory[screen_address];
-
-        bool sprites_valid = false;
-
-        if(!bitmap_mode && !text_mode && !multicolor_mode) {
-            // Standard mode
-
-            pattern_address = ((registers[4] & VR4_PATTERN_MASK_STANDARD) << VR4_PATTERN_SHIFT_STANDARD) | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row;
-
-            color_address = ((registers[3] & VR3_COLORTABLE_MASK_STANDARD) << VR3_COLORTABLE_SHIFT_STANDARD) | (pattern_name >> CHARACTER_COLOR_SHIFT);
-
-            sprites_valid = true;
-
-        } else if(bitmap_mode && !text_mode && !multicolor_mode) {
-            // bitmap mode
-
-            int third = (row / 8) << THIRD_SHIFT;
-
-	    if(true) {
-
-		int address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
-
-		pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
-
-                color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
-
-	    } else { 
-		pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) | pattern_row;
-		color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row);
-	    }
-
-            sprites_valid = true;
-
-        } else {
-
-            printf("unhandled video mode %d %d %d\n",
-                bitmap_mode ? 1 : 0,
-                text_mode ? 1 : 0,
-                multicolor_mode ? 1 : 0);
-
-            color[0] = 255;
-            color[1] = 0;
-            color[2] = 0;
-            return false;
-            // abort();
-        }
-
-        int bit = memory[pattern_address] & (0x80 >> pattern_col);
-
-        unsigned int colortable = memory[color_address];
-        
-        which_color = bit ? ((colortable >> 4) & 0xf) : (colortable & 0xf);
-
-        nybble_to_color(which_color, color);
-
-	return sprites_valid; 
-    }
-
-    static uint8_t create_image_and_return_flags(const std::array<uint8_t, 64>& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, unsigned char image[SCREEN_X * SCREEN_Y * 4])
-    {
-        static unsigned char previous_sprite_bits[SCREEN_Y][SCREEN_X];
-
-        uint8_t flags_set = 0;
-
-	bool sprites_valid;
-
-        for(int row = 0; row < SCREEN_Y; row++) {
-            for(int col = 0; col < SCREEN_X; col++) {
-                unsigned char color[3];
-                sprites_valid = get_color(col, row, color, registers, memory);
-                unsigned char *pixel = image + (row * SCREEN_X + col) * 4;
-                for(int c = 0; c < 3; c++)
-                    pixel[c] = color[c];
-            }
-        }
-
-        if(sprites_valid) {
-            int sprite_table_address = (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
-            bool mag2x = registers[1] & VR1_MAG2X_MASK;
-            bool size4 = registers[1] & VR1_SIZE4_MASK;
-
-	    int sprite_count = 32;
-	    for(int i = 0; i < 32; i++) {
-                auto sprite = memory.begin() + sprite_table_address + i * 4;
-                if(sprite[0] == 0xD0) {
-		    sprite_count = i;
-		    break;
-		}
-	    }
-
-            memset(previous_sprite_bits, 0, SCREEN_X * SCREEN_Y);
-
-            for(int i = sprite_count - 1; i >= 0; i--) {
-                auto sprite = memory.begin() + sprite_table_address + i * 4;
-
-                int sprite_y = sprite[0] + 1;
-                int sprite_x = sprite[1];
-                int sprite_name = sprite[2];
-                bool sprite_earlyclock = sprite[3] & SPRITE_EARLY_CLOCK_MASK;
-                int sprite_color = sprite[3] & SPRITE_COLOR_MASK;
-
-                // printf("sprite %d: %d %d %d %d\n", i, sprite_x, sprite_y, sprite_name, sprite_color);
-
-                if(sprite_earlyclock) {
-                    sprite_x -= 32;
-                }
-
-		int size_pixels = 8;
-		if(mag2x) {
-		    size_pixels *= 2;
-                }
-
-		if(size4) {
-		    size_pixels *= 2;
-                }
-
-		int start_x = std::max(0, sprite_x);
-		int start_y = std::max(0, sprite_y);
-		int end_x = std::min(sprite_x + size_pixels, SCREEN_X) - 1;
-		int end_y = std::min(sprite_y + size_pixels, SCREEN_Y) - 1;
-
-		for(int y = start_y; y <= end_y; y++) {
-		    for(int x = start_x; x <= end_x; x++) {
-			unsigned char color[3];
-			unsigned char *pixel = image + (y * SCREEN_X + x) * 4;
-			for(int c = 0; c < 3; c++) {
-			    color[c] = pixel[c];
-                        }
-
-			int within_sprite_x, within_sprite_y;
-
-			if(mag2x) {
-			    within_sprite_x = (x - sprite_x) / 2;
-			    within_sprite_y = (y - sprite_y) / 2;
-			} else {
-			    within_sprite_x = x - sprite_x;
-			    within_sprite_y = y - sprite_y;
-			}
-
-			if(size4) {
-
-			    int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
-			    int within_quadrant_y = within_sprite_y % 8;
-			    int within_quadrant_x = within_sprite_x % 8;
-			    int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
-			    int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
-			    int bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
-			    if(bit) {
-                                if(previous_sprite_bits[y][x] != 0) {
-                                    flags_set |= VDP_STATUS_COINC_BIT;
-                                    // XXX should also set the sprite collision number bitfield
-                                }
-				nybble_to_color(sprite_color, color);
-                                previous_sprite_bits[y][x] = 0xFF;
-			    }
-
-			} else {
-
-			    int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
-			    int bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
-			    if(bit) {
-                                if(previous_sprite_bits[y][x] != 0) {
-                                    flags_set |= VDP_STATUS_COINC_BIT;
-                                    // XXX should also set the sprite collision number bitfield
-                                }
-				nybble_to_color(sprite_color, color);
-                                previous_sprite_bits[y][x] = 0xFF;
-			    }
-			}
-			for(int c = 0; c < 3; c++) {
-			    pixel[c] = color[c];
-                        }
-		    }
-                }
-            }
-        }
-        return flags_set;
-    }
-
     void perform_scanout(unsigned char image[SCREEN_X * SCREEN_Y * 4])
     {
+        using namespace TMS9918A::constants;
         frame_number++;
         write_number = 0;
         if(debug & DEBUG_SCANOUT) {
@@ -797,15 +818,15 @@ struct TMS9918A
 
     bool nmi_required()
     {
+        using namespace TMS9918A::constants;
         return (registers[1] & VR1_INT_MASK) && (status_register & VDP_STATUS_VSYNC_BIT);
     }
 };
 
-TMS9918A *VDP;
 
 struct ColecoHW : board_base
 {
-    TMS9918A vdp;
+    TMS9918AEmulator vdp;
     SN76489A sound;
 
     bool reading_joystick = true;
@@ -823,7 +844,6 @@ struct ColecoHW : board_base
     ColecoHW(int sample_rate, size_t audio_buffer_size) :
         sound(machine_clock_rate, sample_rate, audio_buffer_size)
     {
-        VDP = &vdp;
     }
 
     virtual bool io_write(int addr, unsigned char data)
@@ -1466,9 +1486,11 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
 {
     FILE *fp = fopen("output.ppm", "w");
 
+    auto& vdp = d->colecohw->vdp;
+
     // XXX
     std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
-    VDP->perform_scanout(framebuffer);
+    create_image_and_return_flags(vdp.registers, vdp.memory, framebuffer);
     std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
     std::chrono::duration<double> elapsed = now - start_time;
     if(false) printf("dump time %f seconds\n", elapsed.count());
@@ -1477,11 +1499,11 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
 
     fp = fopen("vdp_memory.txt", "w");
     fprintf(fp, "%02X %02X %02X %02X %02X %02X %02X %02X\n",
-        VDP->registers[0], VDP->registers[1], VDP->registers[2], VDP->registers[3],
-        VDP->registers[4], VDP->registers[5], VDP->registers[6], VDP->registers[7]);
+        vdp.registers[0], vdp.registers[1], vdp.registers[2], vdp.registers[3],
+        vdp.registers[4], vdp.registers[5], vdp.registers[6], vdp.registers[7]);
     for(int j = 0; j < 64; j++) {
         for(int i = 0; i < 256; i++) {
-            fprintf(fp, "%02X ", VDP->memory[j * 256 + i]);
+            fprintf(fp, "%02X ", vdp.memory[j * 256 + i]);
         }
         fprintf(fp, "\n");
     }
@@ -2633,7 +2655,6 @@ int main(int argc, char **argv)
 
     clk_t clk = 0;
     ColecoHW* colecohw = new ColecoHW(COLECOinterface::get_audio_sample_rate(), COLECOinterface::get_preferred_audio_buffer_size_samples());
-    VDP = &colecohw->vdp;
 
 #ifdef PROVIDE_DEBUGGER
     Debugger *debugger = NULL;
@@ -2675,62 +2696,57 @@ int main(int argc, char **argv)
 #endif
         {
             std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
+
+            clk_t start_of_this_slice = clk;
+            static clk_t previous_field_start_clock = 0;
+
+            // XXX THIS HAS TO REMAIN 1 UNTIL I CAN ISSUE NonMaskableInterrupt PER-INSTRUCTION
+            constexpr int iterated_clock_quantum = 1;
+
+            if(false) {
+                clk += Z80Emulate(&z80state, clocks_per_slice - 1000);
+            }
+
+            while((clk - start_of_this_slice) < clocks_per_slice) {
+                clk_t clocks_this_step = Z80Emulate(&z80state, iterated_clock_quantum);
 #ifdef PROVIDE_DEBUGGER
-            if(debugger) {
-                clk_t cycles = 0;
-                do {
-                    cycles += Z80Emulate(&z80state, 1);
+                if(debugger) {
                     if(enter_debugger || debugger->should_debug(boards, &z80state)) {
                         debugger->go(stdin, boards, &z80state);
                         enter_debugger = false;
                     }
-                } while(cycles < clocks_per_slice);
-                clk += cycles;
-            } else
+                }
 #endif
-            {
-                clk_t start_of_this_slice = clk;
-                static clk_t previous_field_start_clock = 0;
+                clk += clocks_this_step;
 
-                // XXX THIS HAS TO REMAIN 1 UNTIL I CAN ISSUE NonMaskableInterrupt PER-INSTRUCTION
-                constexpr int iterated_clock_quantum = 1;
+                uint64_t retrace_before = previous_field_start_clock / clocks_per_slice;
+                uint64_t retrace_after = clk / clocks_per_slice;
+                if(retrace_before != retrace_after) {
+                    // printf("VDP frame interrupt %llu, %llu clocks\n", retrace_after, clk - previous_field_start_clock);
+                    {
+                        std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
+                        colecohw->vdp.perform_scanout(framebuffer);
+                        std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
+                        auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+                        if(profiling) printf("VDP scanout %lld\n", real_elapsed_micros.count());
+                    }
 
-		if(false) {
-                    clk += Z80Emulate(&z80state, clocks_per_slice - 1000);
+                    colecohw->vdp.vsync();
+                    previous_field_start_clock = clk;
                 }
 
-                while((clk - start_of_this_slice) < clocks_per_slice) {
-                    clk += Z80Emulate(&z80state, iterated_clock_quantum);
-
-                    uint64_t retrace_before = previous_field_start_clock / clocks_per_slice;
-                    uint64_t retrace_after = clk / clocks_per_slice;
-                    if(retrace_before != retrace_after) {
-                        // printf("VDP frame interrupt %llu, %llu clocks\n", retrace_after, clk - previous_field_start_clock);
-                        {
-                            std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
-                            VDP->perform_scanout(framebuffer);
-                            std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
-                            auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-                            if(profiling) printf("VDP scanout %lld\n", real_elapsed_micros.count());
-                        }
-
-                        colecohw->vdp.vsync();
-                        previous_field_start_clock = clk;
+                if(colecohw->nmi_required()) {
+                    if(!nmi_was_issued) {
+                        Z80NonMaskableInterrupt (&z80state);
+                        nmi_was_issued = true;
                     }
-
-                    if(colecohw->nmi_required()) {
-                        if(!nmi_was_issued) {
-                            Z80NonMaskableInterrupt (&z80state);
-                            nmi_was_issued = true;
-                        }
-                    } else {
-                        nmi_was_issued = false;
-                    }
-		}
+                } else {
+                    nmi_was_issued = false;
+                }
             }
             std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
             auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-	    if(profiling) printf("insns %lld\n", real_elapsed_micros.count());
+            if(profiling) printf("insns %lld\n", real_elapsed_micros.count());
 
             std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
 

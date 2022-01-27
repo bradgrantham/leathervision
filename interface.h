@@ -4,7 +4,6 @@
 namespace COLECOinterface
 {
 
-
 enum EventType
 {
     NONE, RESET, SPEED, QUIT, PAUSE,
@@ -33,7 +32,7 @@ size_t get_preferred_audio_buffer_size_samples();
 void enqueue_audio_samples(uint8_t *buf, size_t sz);
 
 void start();
-void iterate(const std::array<uint8_t, 64>& vdp_registers, const std::array<uint8_t, 16384>& vdp_ram, float megahertz); // update display
+void iterate(const std::array<uint8_t, 64>& vdp_registers, const std::array<uint8_t, 16384>& vdp_ram, uint8_t& vdp_status_result, float megahertz); // update display
 void shutdown();
 
 };
