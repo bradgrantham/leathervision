@@ -401,8 +401,8 @@ static constexpr int VR1_M1_MASK = 0x08;
 static constexpr int VR1_SIZE4_MASK = 0x02;
 static constexpr int VR1_MAG2X_MASK = 0x01;
 
-static constexpr int VR2_SCREENIMAGE_MASK = 0x0F;
-static constexpr int VR2_SCREENIMAGE_SHIFT = 10;
+static constexpr int VR2_NAME_TABLE_MASK = 0x0F;
+static constexpr int VR2_NAME_TABLE_SHIFT = 10;
 
 static constexpr int VR3_COLORTABLE_MASK_STANDARD = 0xFF;
 static constexpr int VR3_COLORTABLE_SHIFT_STANDARD = 6;
@@ -495,6 +495,11 @@ GraphicsMode GetGraphicsMode(const register_file_t& registers)
     return GraphicsMode::UNDEFINED;
 }
 
+uint16_t GetNameTableBase(const register_file_t& registers)
+{
+    return (registers[2] & constants::VR2_NAME_TABLE_MASK) << constants::VR2_NAME_TABLE_SHIFT;
+}
+
 };
 
 void copy_color(uint8_t* dst, uint8_t* src)
@@ -564,8 +569,8 @@ static void get_color(int x, int y, unsigned char color[3], const TMS9918A::regi
     int pattern_address;
     int color_address;
 
-    int screen_address = ((registers[2] & VR2_SCREENIMAGE_MASK) << VR2_SCREENIMAGE_SHIFT) | (row << ROW_SHIFT) | col;
-    unsigned char pattern_name = memory[screen_address];
+    int name_table_address = GetNameTableBase(registers) | (row << ROW_SHIFT) | col;
+    unsigned char pattern_name = memory[name_table_address];
 
     if(mode == GraphicsMode::GRAPHICS_I) {
 
@@ -586,8 +591,10 @@ static void get_color(int x, int y, unsigned char color[3], const TMS9918A::regi
             color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
 
         } else { 
-            pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) | pattern_row;
-            color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row);
+            // pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) | pattern_row;
+            // color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row);
+            pattern_address = ((registers[4] & VR4_PATTERN_MASK_STANDARD) << VR4_PATTERN_SHIFT_STANDARD) | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row | third;
+            color_address = ((registers[3] & VR3_COLORTABLE_MASK_STANDARD) << VR3_COLORTABLE_SHIFT_STANDARD) | (pattern_name >> CHARACTER_COLOR_SHIFT) | third;
         }
 
     } else {
