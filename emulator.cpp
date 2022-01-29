@@ -174,34 +174,6 @@ void write_image(unsigned char image[SCREEN_X * SCREEN_Y * 4], FILE *fp)
     }
 }
 
-unsigned char nybbles_to_color[16][3] = {
-    {0, 0, 0},
-    {0, 0, 0},
-    {37, 196, 37},
-    {102, 226, 102},
-    {37, 37, 226},
-    {70, 102, 226},
-    {165, 37, 37},
-    {70, 196, 226},
-    {226, 37, 37},
-    {226, 102, 102},
-    {196, 196, 37},
-    {196, 196, 134},
-    {37, 134, 37},
-    {196, 70, 165},
-    {165, 165, 165},
-    {226, 226, 226},
-};
-
-void nybble_to_color(unsigned int nybble, unsigned char color[3])
-{
-    if(nybble == 0)
-        return;
-    color[0] = nybbles_to_color[nybble][0];
-    color[1] = nybbles_to_color[nybble][1];
-    color[2] = nybbles_to_color[nybble][2];
-}
-
 typedef std::function<void (uint8_t *audiobuffer, size_t dist)> audio_flush_func;
 
 struct SN76489A
@@ -406,7 +378,10 @@ struct SN76489A
     }
 };
 
-namespace TMS9918A::constants
+namespace TMS9918A
+{
+
+namespace constants
 {
 
 static constexpr int REG_A0_A5_MASK = 0x3F;
@@ -415,14 +390,14 @@ static constexpr int CMD_SET_REGISTER = 0x80;
 static constexpr int CMD_SET_WRITE_ADDRESS = 0x40;
 static constexpr int CMD_SET_READ_ADDRESS = 0x00;
 
-static constexpr int VR0_BITMAP_MASK = 0x02;
+static constexpr int VR0_M3_MASK = 0x02;
 [[maybe_unused]] static constexpr int VR0_EXTVID_MASK = 0x01;
 
 [[maybe_unused]] static constexpr int VR1_16K_MASK = 0x80; 
-static constexpr int VR1_BLANK_MASK = 0x40;
+static constexpr int VR1_BLANK_MASK = 0x40; /* and BLANK is active low */
 static constexpr int VR1_INT_MASK = 0x20;
-static constexpr int VR1_MULTIC_MASK = 0x10;
-static constexpr int VR1_TEXT_MASK = 0x08;
+static constexpr int VR1_M2_MASK = 0x10;
+static constexpr int VR1_M1_MASK = 0x08;
 static constexpr int VR1_SIZE4_MASK = 0x02;
 static constexpr int VR1_MAG2X_MASK = 0x01;
 
@@ -467,24 +442,118 @@ static constexpr int SPRITE_COLOR_MASK = 0x0F;
 static constexpr int SPRITE_NAME_SHIFT = 3;
 static constexpr int SPRITE_NAME_MASK_SIZE4 = 0xFC;
 
+static constexpr int REGISTER_COUNT = 8;
+
 };
 
-template <size_t MEMORY_SIZE>
-static bool get_color(int x, int y, unsigned char color[3], const std::array<uint8_t, 64>& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+typedef std::array<uint8_t, constants::REGISTER_COUNT> register_file_t;
+
+enum GraphicsMode { GRAPHICS_I, GRAPHICS_II, TEXT, MULTICOLOR, UNDEFINED };
+
+bool ActiveDisplayAreaIsBlanked(const register_file_t& registers)
 {
-    using namespace TMS9918A::constants;
-    if((registers[1] & VR1_BLANK_MASK) == 0) {
-        nybble_to_color((registers[7] & VR7_BD_MASK) >> VR7_BD_SHIFT, color);
+    return (registers[1] & constants::VR1_BLANK_MASK) == 0;
+}
+
+bool SpritesVisible(const register_file_t& registers)
+{
+    if(ActiveDisplayAreaIsBlanked(registers)) {
         return false;
     }
 
-    bool bitmap_mode = (registers[0] & VR0_BITMAP_MASK);
-    bool text_mode = (registers[1] & VR1_TEXT_MASK);
-    bool multicolor_mode = (registers[1] & VR1_MULTIC_MASK);
+    bool M1 = registers[0] & constants::VR1_M1_MASK;
+    bool M2 = registers[1] & constants::VR1_M2_MASK;
+    bool M3 = registers[1] & constants::VR0_M3_MASK;
 
-    color[0] = 0;
-    color[1] = 0;
-    color[2] = 0;
+    if(!M1 && !M2 && !M3) {
+        return true;
+    } else if(!M1 && !M2 && M3) {
+        return true;
+    } else if(!M1 && M2 && !M3) {
+        return true;
+    } else if(M1 && !M2 && !M3) {
+        return false;
+    }
+    return false;
+}
+
+GraphicsMode GetGraphicsMode(const register_file_t& registers)
+{
+    bool M1 = registers[0] & constants::VR1_M1_MASK;
+    bool M2 = registers[1] & constants::VR1_M2_MASK;
+    bool M3 = registers[1] & constants::VR0_M3_MASK;
+
+    if(!M1 && !M2 && !M3) {
+        return GraphicsMode::GRAPHICS_I;
+    } else if(!M1 && !M2 && M3) {
+        return GraphicsMode::GRAPHICS_II;
+    } else if(!M1 && M2 && !M3) {
+        return GraphicsMode::MULTICOLOR;
+    } else if(M1 && !M2 && !M3) {
+        return GraphicsMode::TEXT;
+    }
+    return GraphicsMode::UNDEFINED;
+}
+
+};
+
+void copy_color(uint8_t* dst, uint8_t* src)
+{
+    dst[0] = src[0];
+    dst[1] = src[1];
+    dst[2] = src[2];
+}
+
+void set_color(uint8_t *color, uint8_t r, uint8_t g, uint8_t b)
+{
+    color[0] = r;
+    color[1] = g;
+    color[2] = b;
+}
+
+void nybble_to_color(unsigned int nybble, unsigned char color[3])
+{
+    static uint8_t nybbles_to_color[16][3] = {
+        {0, 0, 0},
+        {0, 0, 0},
+        {37, 196, 37},
+        {102, 226, 102},
+        {37, 37, 226},
+        {70, 102, 226},
+        {165, 37, 37},
+        {70, 196, 226},
+        {226, 37, 37},
+        {226, 102, 102},
+        {196, 196, 37},
+        {196, 196, 134},
+        {37, 134, 37},
+        {196, 70, 165},
+        {165, 165, 165},
+        {226, 226, 226},
+    };
+
+    if(nybble == 0) {
+        // 0 is transparent
+        return;
+    }
+    copy_color(color, nybbles_to_color[nybble]);
+}
+
+
+template <size_t MEMORY_SIZE>
+static void get_color(int x, int y, unsigned char color[3], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+{
+    using namespace TMS9918A;
+    using namespace TMS9918A::constants;
+
+    if(ActiveDisplayAreaIsBlanked(registers)) {
+        nybble_to_color((registers[7] & VR7_BD_MASK) >> VR7_BD_SHIFT, color);
+        return;
+    }
+
+    GraphicsMode mode = GetGraphicsMode(registers);
+
+    set_color(color, 0, 0, 0);
 
     int col = x / 8;
     int row = y / 8;
@@ -498,19 +567,13 @@ static bool get_color(int x, int y, unsigned char color[3], const std::array<uin
     int screen_address = ((registers[2] & VR2_SCREENIMAGE_MASK) << VR2_SCREENIMAGE_SHIFT) | (row << ROW_SHIFT) | col;
     unsigned char pattern_name = memory[screen_address];
 
-    bool sprites_valid = false;
-
-    if(!bitmap_mode && !text_mode && !multicolor_mode) {
-        // Standard mode
+    if(mode == GraphicsMode::GRAPHICS_I) {
 
         pattern_address = ((registers[4] & VR4_PATTERN_MASK_STANDARD) << VR4_PATTERN_SHIFT_STANDARD) | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row;
 
         color_address = ((registers[3] & VR3_COLORTABLE_MASK_STANDARD) << VR3_COLORTABLE_SHIFT_STANDARD) | (pattern_name >> CHARACTER_COLOR_SHIFT);
 
-        sprites_valid = true;
-
-    } else if(bitmap_mode && !text_mode && !multicolor_mode) {
-        // bitmap mode
+    } else if(mode == GraphicsMode::GRAPHICS_II) {
 
         int third = (row / 8) << THIRD_SHIFT;
 
@@ -527,20 +590,16 @@ static bool get_color(int x, int y, unsigned char color[3], const std::array<uin
             color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row);
         }
 
-        sprites_valid = true;
-
     } else {
 
-        printf("unhandled video mode %d %d %d\n",
-            bitmap_mode ? 1 : 0,
-            text_mode ? 1 : 0,
-            multicolor_mode ? 1 : 0);
+        bool M1 = registers[0] & VR1_M1_MASK;
+        bool M2 = registers[1] & VR1_M2_MASK;
+        bool M3 = registers[1] & VR0_M3_MASK;
+        printf("unhandled video mode M1 = %d M2 = %d M3 = %d\n", M1, M2, M3);
 
-        color[0] = 255;
-        color[1] = 0;
-        color[2] = 0;
-        return false;
+        set_color(color, 255, 0, 0);
         // abort();
+        return;
     }
 
     int bit = memory[pattern_address] & (0x80 >> pattern_col);
@@ -550,31 +609,30 @@ static bool get_color(int x, int y, unsigned char color[3], const std::array<uin
     which_color = bit ? ((colortable >> 4) & 0xf) : (colortable & 0xf);
 
     nybble_to_color(which_color, color);
-
-    return sprites_valid; 
 }
 
 template <size_t MEMORY_SIZE>
-static uint8_t create_image_and_return_flags(const std::array<uint8_t, 64>& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, unsigned char image[SCREEN_X * SCREEN_Y * 4])
+static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, unsigned char image[SCREEN_X * SCREEN_Y * 4])
 {
     using namespace TMS9918A::constants;
+    using namespace TMS9918A;
     static unsigned char previous_sprite_bits[SCREEN_Y][SCREEN_X];
 
     uint8_t flags_set = 0;
 
-    bool sprites_valid;
+    bool sprites_visible = SpritesVisible(registers);
 
     for(int row = 0; row < SCREEN_Y; row++) {
         for(int col = 0; col < SCREEN_X; col++) {
             unsigned char color[3];
-            sprites_valid = get_color(col, row, color, registers, memory);
+            get_color(col, row, color, registers, memory);
             unsigned char *pixel = image + (row * SCREEN_X + col) * 4;
             for(int c = 0; c < 3; c++)
                 pixel[c] = color[c];
         }
     }
 
-    if(sprites_valid) {
+    if(sprites_visible) {
         int sprite_table_address = (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
         bool mag2x = registers[1] & VR1_MAG2X_MASK;
         bool size4 = registers[1] & VR1_SIZE4_MASK;
@@ -678,7 +736,7 @@ static uint8_t create_image_and_return_flags(const std::array<uint8_t, 64>& regi
 }
 
 template <size_t MEMORY_SIZE>
-static uint8_t create_image_and_return_flags(const std::array<uint8_t, 64>& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, unsigned char image[SCREEN_X * SCREEN_Y * 4]);
+static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, unsigned char image[SCREEN_X * SCREEN_Y * 4]);
 
 struct TMS9918AEmulator
 {
@@ -688,7 +746,7 @@ struct TMS9918AEmulator
 
     static constexpr int MEMORY_SIZE = 16384;
     std::array<uint8_t, MEMORY_SIZE> memory{};
-    std::array<uint8_t, 64> registers{};
+    TMS9918A::register_file_t registers{};
     uint8_t status_register{0};
 
     enum {CMD_PHASE_FIRST, CMD_PHASE_SECOND} cmd_phase = CMD_PHASE_FIRST;
