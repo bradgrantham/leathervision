@@ -1,0 +1,24 @@
+result=0
+for cart in beamrider burgertime burgertime_prototype chiplifter defender dig_dug donkey_kong donkey_kong_jr frogger jungle_hunt looping miner_2049er moon_patrol mr_do pitfall pitfall_2 popeye qbert roc_n_rope slither smurf spy_hunter spy_hunter_prototype super_cross_force zaxxon
+do
+    for index in `seq 0 100`
+    do
+        filename=`printf $cart""_%02d $index`
+        if [ -e $filename.vdp ]
+        then
+            # echo $filename
+            test=$filename""_test.ppm
+            ref=$filename""_ref.ppm
+            ../emulator -vdp-test $filename.vdp $test
+            if ! cmp $test $ref
+            then
+                echo $filename FAILED with differences
+            fi
+        fi
+    done
+done
+if [ $result == 0 ]
+then
+    echo SUCCESS
+fi
+exit $result
