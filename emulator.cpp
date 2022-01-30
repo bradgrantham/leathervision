@@ -46,6 +46,7 @@ constexpr unsigned int DEBUG_RAM = 0x02;
 constexpr unsigned int DEBUG_IO = 0x04;
 constexpr unsigned int DEBUG_SCANOUT = 0x08;
 constexpr unsigned int DEBUG_VDP_OPERATIONS = 0x10;
+bool save_vdp = false;
 unsigned int debug = DEBUG_NONE;
 bool abort_on_exception = false;
 bool do_save_images_on_vdp_write = false;
@@ -787,7 +788,7 @@ struct TMS9918AEmulator
             create_image_and_return_flags(registers, memory, framebuffer);
             char name[512];
             sprintf(name, "frame_%04d_%05d_%d_%02X.ppm", frame_number, write_number, cmd, data);
-            FILE *fp = fopen(name, "w");
+            FILE *fp = fopen(name, "wb");
             write_image(framebuffer, fp);
             fclose(fp);
         }
@@ -1553,7 +1554,7 @@ bool debugger_fill(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
 
 bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
 {
-    FILE *fp = fopen("output.ppm", "w");
+    FILE *fp = fopen("output.ppm", "wb");
 
     auto& vdp = d->colecohw->vdp;
 
@@ -2238,6 +2239,9 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
             case GLFW_KEY_LEFT_SHIFT:
                 shift_pressed = true;
                 break;
+            case GLFW_KEY_V:
+                save_vdp = true;
+                break;
             case GLFW_KEY_N:
                 do_save_images_on_vdp_write = !do_save_images_on_vdp_write;
                 break;
@@ -2634,6 +2638,33 @@ void cvhat_read_controllers()
 
 #endif
 
+void do_vdp_test(const char *vdp_dump_name, const char *image_name)
+{
+    TMS9918A::register_file_t registers;
+    std::array<uint8_t, 16384> memory;
+
+    FILE *vdp_dump_in = fopen(vdp_dump_name, "r");
+    char line[512];
+    fgets(line, sizeof(line), vdp_dump_in);
+    for(size_t i = 0; i < 8; i++) {
+        int v;
+        fscanf(vdp_dump_in, " %u", &v);
+        registers[i] = v;
+    }
+    for(size_t i = 0; i < 16384; i++) {
+        int v;
+        fscanf(vdp_dump_in, " %u", &v);
+        memory[i] = v;
+    }
+    fclose(vdp_dump_in);
+
+    static uint8_t framebuffer[SCREEN_X * SCREEN_Y * 4];
+    create_image_and_return_flags(registers, memory, framebuffer);
+    FILE *fp = fopen(image_name, "wb");
+    write_image(framebuffer, fp);
+    fclose(fp);
+}
+
 int main(int argc, char **argv)
 {
 #ifdef PROVIDE_DEBUGGER
@@ -2655,6 +2686,14 @@ int main(int argc, char **argv)
          {
              usage(progname);
              exit(EXIT_SUCCESS);
+	} else if(strcmp(argv[0], "-vdp-test") == 0) {
+            if(argc < 3) {
+                fprintf(stderr, "-vdp-test requires VDP register dump filename and output image filename\n");
+                usage(progname);
+                exit(EXIT_FAILURE);
+            }
+            do_vdp_test(argv[1], argv[2]);
+            exit(0);
 #ifdef PROVIDE_DEBUGGER
 	} else if(strcmp(argv[0], "-debugger") == 0) {
             if(argc < 2) {
@@ -2795,6 +2834,24 @@ int main(int argc, char **argv)
                     {
                         std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
                         colecohw->vdp.perform_scanout(framebuffer);
+                        if(save_vdp) {
+                            static int which = 0;
+                            static char filename[512];
+                            sprintf(filename, "%s_%02d.vdp", getenv("VDP_OUT_BASE"), which);
+                            FILE *vdp_file = fopen(filename, "w");
+                            fprintf(vdp_file, "# %s_%02d.vdp, 8 register bytes, 16384 RAM bytes\n", getenv("VDP_OUT_BASE"), which++);
+                            for(size_t i = 0; i < colecohw->vdp.registers.size(); i++) {
+                                bool more_in_row = ((i + 1) % 8) != 0;
+                                fprintf(vdp_file, "%u%s", colecohw->vdp.registers[i], more_in_row ? " " : "\n");
+                            }
+                            fputs("", vdp_file);
+                            for(size_t i = 0; i < colecohw->vdp.memory.size(); i++) {
+                                bool more_in_row = ((i + 1) % 16) != 0;
+                                fprintf(vdp_file, "%u%s", colecohw->vdp.memory[i], more_in_row ? " " : "\n");
+                            }
+                            fputs("", vdp_file);
+                            save_vdp = false;
+                        }
                         std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
                         auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
                         if(profiling) printf("VDP scanout %lld\n", real_elapsed_micros.count());
