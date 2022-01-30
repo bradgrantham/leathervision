@@ -455,33 +455,11 @@ bool ActiveDisplayAreaIsBlanked(const register_file_t& registers)
     return (registers[1] & constants::VR1_BLANK_MASK) == 0;
 }
 
-bool SpritesVisible(const register_file_t& registers)
-{
-    if(ActiveDisplayAreaIsBlanked(registers)) {
-        return false;
-    }
-
-    bool M1 = registers[0] & constants::VR1_M1_MASK;
-    bool M2 = registers[1] & constants::VR1_M2_MASK;
-    bool M3 = registers[1] & constants::VR0_M3_MASK;
-
-    if(!M1 && !M2 && !M3) {
-        return true;
-    } else if(!M1 && !M2 && M3) {
-        return true;
-    } else if(!M1 && M2 && !M3) {
-        return true;
-    } else if(M1 && !M2 && !M3) {
-        return false;
-    }
-    return false;
-}
-
 GraphicsMode GetGraphicsMode(const register_file_t& registers)
 {
-    bool M1 = registers[0] & constants::VR1_M1_MASK;
+    bool M1 = registers[1] & constants::VR1_M1_MASK;
     bool M2 = registers[1] & constants::VR1_M2_MASK;
-    bool M3 = registers[1] & constants::VR0_M3_MASK;
+    bool M3 = registers[0] & constants::VR0_M3_MASK;
 
     if(!M1 && !M2 && !M3) {
         return GraphicsMode::GRAPHICS_I;
@@ -493,6 +471,32 @@ GraphicsMode GetGraphicsMode(const register_file_t& registers)
         return GraphicsMode::TEXT;
     }
     return GraphicsMode::UNDEFINED;
+}
+
+bool SpritesVisible(const register_file_t& registers)
+{
+    if(ActiveDisplayAreaIsBlanked(registers)) {
+        return false;
+    }
+
+    switch(GetGraphicsMode(registers)) {
+        case GRAPHICS_I:
+            return true;
+            break;
+        case GRAPHICS_II:
+            return true;
+            break;
+        case TEXT:
+            return false;
+            break;
+        case MULTICOLOR:
+            return true;
+            break;
+        case UNDEFINED:
+            return true;
+            break;
+    }
+    return false;
 }
 
 uint16_t GetNameTableBase(const register_file_t& registers)
@@ -599,9 +603,9 @@ static void get_color(int x, int y, unsigned char color[3], const TMS9918A::regi
 
     } else {
 
-        bool M1 = registers[0] & VR1_M1_MASK;
+        bool M1 = registers[1] & VR1_M1_MASK;
         bool M2 = registers[1] & VR1_M2_MASK;
-        bool M3 = registers[1] & VR0_M3_MASK;
+        bool M3 = registers[0] & VR0_M3_MASK;
         printf("unhandled video mode M1 = %d M2 = %d M3 = %d\n", M1, M2, M3);
 
         set_color(color, 255, 0, 0);
