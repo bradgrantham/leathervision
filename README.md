@@ -1,1 +1,5 @@
-emulator COLECO.ROM Smurf\ -\ Rescue\ in\ Gargamel\'s\ Castle\ \(1982\).col
+emulator COLECO.ROM cartridge-filename
+
+MacOS, uses libao, libglfw
+
+![Pitfall](pitfall.gif)
