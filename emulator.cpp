@@ -614,8 +614,8 @@ static void get_color(int x, int y, unsigned char color[3], const TMS9918A::regi
     nybble_to_color(which_color, color);
 }
 
-template <size_t MEMORY_SIZE>
-static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, unsigned char image[SCREEN_X * SCREEN_Y * 4])
+template <size_t MEMORY_SIZE, typename SetPixelFunc>
+static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, SetPixelFunc SetPixel)
 {
     using namespace TMS9918A::constants;
     using namespace TMS9918A;
@@ -629,9 +629,7 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
         for(int col = 0; col < SCREEN_X; col++) {
             unsigned char color[3];
             get_color(col, row, color, registers, memory);
-            unsigned char *pixel = image + (row * SCREEN_X + col) * 4;
-            for(int c = 0; c < 3; c++)
-                pixel[c] = color[c];
+            SetPixel(col, row, color[0], color[1], color[2]);
         }
     }
 
@@ -682,11 +680,6 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
 
             for(int y = start_y; y <= end_y; y++) {
                 for(int x = start_x; x <= end_x; x++) {
-                    unsigned char color[3];
-                    unsigned char *pixel = image + (y * SCREEN_X + x) * 4;
-                    for(int c = 0; c < 3; c++) {
-                        color[c] = pixel[c];
-                    }
 
                     int within_sprite_x, within_sprite_y;
 
@@ -698,6 +691,8 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
                         within_sprite_y = y - sprite_y;
                     }
 
+                    int bit = 0;
+
                     if(size4) {
 
                         int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
@@ -705,31 +700,25 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
                         int within_quadrant_x = within_sprite_x % 8;
                         int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
                         int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
-                        int bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
-                        if(bit) {
-                            if(previous_sprite_bits[y][x] != 0) {
-                                flags_set |= VDP_STATUS_COINC_BIT;
-                                // XXX should also set the sprite collision number bitfield
-                            }
-                            nybble_to_color(sprite_color, color);
-                            previous_sprite_bits[y][x] = 0xFF;
-                        }
+                        bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
 
                     } else {
 
                         int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
-                        int bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
-                        if(bit) {
-                            if(previous_sprite_bits[y][x] != 0) {
-                                flags_set |= VDP_STATUS_COINC_BIT;
-                                // XXX should also set the sprite collision number bitfield
-                            }
-                            nybble_to_color(sprite_color, color);
-                            previous_sprite_bits[y][x] = 0xFF;
-                        }
+                        bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
                     }
-                    for(int c = 0; c < 3; c++) {
-                        pixel[c] = color[c];
+
+                    if(bit) {
+                        if(previous_sprite_bits[y][x] != 0) {
+                            flags_set |= VDP_STATUS_COINC_BIT;
+                            // XXX should also set the sprite collision number bitfield
+                        }
+                        previous_sprite_bits[y][x] = 0xFF;
+                        if(sprite_color != 0) {
+                            uint8_t color[3];
+                            nybble_to_color(sprite_color, color);
+                            SetPixel(x, y, color[0], color[1], color[2]);
+                        }
                     }
                 }
             }
@@ -738,8 +727,8 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
     return flags_set;
 }
 
-template <size_t MEMORY_SIZE>
-static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, unsigned char image[SCREEN_X * SCREEN_Y * 4]);
+template <size_t MEMORY_SIZE, typename SetPixelFunc>
+static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, SetPixelFunc SetPixel);
 
 struct TMS9918AEmulator
 {
@@ -774,9 +763,13 @@ struct TMS9918AEmulator
         if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, z80state.in_nmi);
         if(do_save_images_on_vdp_write) { /* debug */
 
-            // XXX
+            static unsigned char framebuffer[SCREEN_X * SCREEN_Y * 4];
+            auto pixel_setter = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+                uint8_t *pixel = framebuffer + 4 * (x + y * SCREEN_X) + 0;
+                set_color(pixel, r, g, b);
+            };
 
-            create_image_and_return_flags(registers, memory, framebuffer);
+            create_image_and_return_flags(registers, memory, pixel_setter);
             char name[512];
             sprintf(name, "frame_%04d_%05d_%d_%02X.ppm", frame_number, write_number, cmd, data);
             FILE *fp = fopen(name, "wb");
@@ -874,7 +867,13 @@ struct TMS9918AEmulator
         if(debug & DEBUG_SCANOUT) {
             printf("scanout frame %d\n", frame_number);
         }
-        status_register |= create_image_and_return_flags(registers, memory, image);
+
+        auto pixel_setter = [&image](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+            uint8_t *pixel = image + 4 * (x + y * SCREEN_X) + 0;
+            set_color(pixel, r, g, b);
+        };
+
+        status_register |= create_image_and_return_flags(registers, memory, pixel_setter);
     }
 
     bool nmi_required()
@@ -1550,8 +1549,13 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     auto& vdp = d->colecohw->vdp;
 
     // XXX
+    static unsigned char framebuffer[SCREEN_X * SCREEN_Y * 4];
+    auto pixel_setter = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t *pixel = framebuffer + 4 * (x + y * SCREEN_X) + 0;
+        set_color(pixel, r, g, b);
+    };
     std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
-    create_image_and_return_flags(vdp.registers, vdp.memory, framebuffer);
+    create_image_and_return_flags(vdp.registers, vdp.memory, pixel_setter);
     std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
     std::chrono::duration<double> elapsed = now - start_time;
     if(false) printf("dump time %f seconds\n", elapsed.count());
@@ -2650,7 +2654,11 @@ void do_vdp_test(const char *vdp_dump_name, const char *image_name)
     fclose(vdp_dump_in);
 
     static uint8_t framebuffer[SCREEN_X * SCREEN_Y * 4];
-    create_image_and_return_flags(registers, memory, framebuffer);
+    auto pixel_setter = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t *pixel = framebuffer + 4 * (x + y * SCREEN_X) + 0;
+        set_color(pixel, r, g, b);
+    };
+    create_image_and_return_flags(registers, memory, pixel_setter);
     FILE *fp = fopen(image_name, "wb");
     write_image(framebuffer, fp);
     fclose(fp);
