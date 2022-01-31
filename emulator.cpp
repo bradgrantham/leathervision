@@ -466,6 +466,21 @@ bool ActiveDisplayAreaIsBlanked(const register_file_t& registers)
     return (registers[1] & constants::VR1_BLANK_MASK) == 0;
 }
 
+uint8_t GetBackdropColor(const register_file_t& registers)
+{
+    return (registers[7] & constants::VR7_BD_MASK) >> constants::VR7_BD_SHIFT;
+}
+
+bool InterruptsAreEnabled(const register_file_t& registers)
+{
+    return registers[1] & constants::VR1_INT_MASK;
+}
+
+bool VSyncInterruptHasOccurred(uint8_t status_register)
+{
+    return status_register & constants::VDP_STATUS_VSYNC_BIT;
+}
+
 GraphicsMode GetGraphicsMode(const register_file_t& registers)
 {
     bool M1 = registers[1] & constants::VR1_M1_MASK;
@@ -513,6 +528,11 @@ bool SpritesVisible(const register_file_t& registers)
 uint16_t GetNameTableBase(const register_file_t& registers)
 {
     return (registers[2] & constants::VR2_NAME_TABLE_MASK) << constants::VR2_NAME_TABLE_SHIFT;
+}
+
+uint16_t GetSpriteTableBase(const register_file_t& registers)
+{
+    return (registers[5] & constants::VR5_SPRITE_ATTR_MASK) << constants::VR5_SPRITE_ATTR_SHIFT;
 }
 
 };
@@ -567,7 +587,8 @@ static void get_color(int x, int y, unsigned char color[3], const TMS9918A::regi
     using namespace TMS9918A::constants;
 
     if(ActiveDisplayAreaIsBlanked(registers)) {
-        nybble_to_color((registers[7] & VR7_BD_MASK) >> VR7_BD_SHIFT, color);
+
+        nybble_to_color(GetBackdropColor(registers), color);
         return;
     }
 
@@ -644,7 +665,7 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
 
     if(sprites_visible) {
 
-        int sprite_table_address = (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
+        int sprite_table_address = GetSpriteTableBase(registers);
         bool mag2x = SpritesAreMagnified2X(registers);
         bool size4 = SpritesAreSize4(registers);
         int sprite_count = 32;
@@ -881,8 +902,8 @@ struct TMS9918AEmulator
 
     bool nmi_required()
     {
-        using namespace TMS9918A::constants;
-        return (registers[1] & VR1_INT_MASK) && (status_register & VDP_STATUS_VSYNC_BIT);
+        using namespace TMS9918A;
+        return InterruptsAreEnabled(registers) && VSyncInterruptHasOccurred(status_register);
     }
 };
 
