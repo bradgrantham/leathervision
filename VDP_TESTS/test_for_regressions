@@ -13,6 +13,7 @@ do
             if ! cmp $test $ref
             then
                 echo $filename FAILED with differences
+                result=1
             fi
         fi
     done
