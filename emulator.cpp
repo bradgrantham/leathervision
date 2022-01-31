@@ -587,20 +587,11 @@ static void get_color(int x, int y, unsigned char color[3], const TMS9918A::regi
 
         int third = (row / 8) << THIRD_SHIFT;
 
-        if(true) {
+        int address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
 
-            int address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
+        pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
 
-            pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
-
-            color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
-
-        } else { 
-            // pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT)) | pattern_row;
-            // color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | third | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row);
-            pattern_address = ((registers[4] & VR4_PATTERN_MASK_STANDARD) << VR4_PATTERN_SHIFT_STANDARD) | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row | third;
-            color_address = ((registers[3] & VR3_COLORTABLE_MASK_STANDARD) << VR3_COLORTABLE_SHIFT_STANDARD) | (pattern_name >> CHARACTER_COLOR_SHIFT) | third;
-        }
+        color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
 
     } else {
 
