@@ -530,9 +530,14 @@ uint16_t GetNameTableBase(const register_file_t& registers)
     return (registers[2] & constants::VR2_NAME_TABLE_MASK) << constants::VR2_NAME_TABLE_SHIFT;
 }
 
-uint16_t GetSpriteTableBase(const register_file_t& registers)
+uint16_t GetSpriteAttributeTableBase(const register_file_t& registers)
 {
     return (registers[5] & constants::VR5_SPRITE_ATTR_MASK) << constants::VR5_SPRITE_ATTR_SHIFT;
+}
+
+uint16_t GetSpritePatternTableBase(const register_file_t& registers)
+{
+    return (registers[6] & constants::VR6_SPRITE_PATTERN_MASK) << constants::VR6_SPRITE_PATTERN_SHIFT;
 }
 
 };
@@ -665,7 +670,7 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
 
     if(sprites_visible) {
 
-        int sprite_table_address = GetSpriteTableBase(registers);
+        int sprite_table_address = GetSpriteAttributeTableBase(registers);
         bool mag2x = SpritesAreMagnified2X(registers);
         bool size4 = SpritesAreSize4(registers);
         int sprite_count = 32;
@@ -729,12 +734,12 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
                             int within_quadrant_y = within_sprite_y % 8;
                             int within_quadrant_x = within_sprite_x % 8;
                             int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
-                            int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
+                            int sprite_pattern_address = GetSpritePatternTableBase(registers) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
                             bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
 
                         } else {
 
-                            int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
+                            int sprite_pattern_address = GetSpritePatternTableBase(registers) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
                             bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
                         }
 
