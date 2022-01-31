@@ -1,5 +1,7 @@
 TODO
-* move vdp_int and coinc bits to VDP status byte, test them there, return that byte and clear on read
+* backdrop color not being honored - Super Action Controller should be black on green - https://www.youtube.com/watch?v=FQVKTKH-x2E
+* implement backdrop?  Will be visible on NTSC and can match device.  Handling early clock needs care
+* Am I correctly handling signed sprite Y?  (Page 2-26 in VDP docs)
 * implement fifth sprite check & status register content
 * make IO read/write decoding match schematic
 
@@ -26,9 +28,9 @@ TODO
 | Popeye | playable | strange high-pitched whistle when there seems like there should be a rest between notes during play |
 | Super Cross Force | playable | there's no animation during explosion - is that normal? |
 | Beamrider | playable | stars show up after dying - is that normal? |
-| Moon Patrol (prototype) | playable | title screen is missing the name |
-| Jungle Hunt | playable+crash | occasionally aborts with interrupted VDP command |
+| Moon Patrol (prototype) | playable | title screen is missing the name; issue with prototype? |
+| Jungle Hunt | playable | |
 | Frogger | hang WONTFIX | repeated note after drawing initial screen, no recognition of game start |
 | Slither | unknown | appears to work but requires Roller Controller (trackball) |
-| Super Action Controller Test Cartridge | unknown | |
+| Super Action Controller Test Cartridge | playable | but should there be a background graphic? |
 
