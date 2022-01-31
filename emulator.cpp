@@ -451,6 +451,16 @@ typedef std::array<uint8_t, constants::REGISTER_COUNT> register_file_t;
 
 enum GraphicsMode { GRAPHICS_I, GRAPHICS_II, TEXT, MULTICOLOR, UNDEFINED };
 
+bool SpritesAreSize4(const register_file_t& registers)
+{
+    return registers[1] & constants::VR1_SIZE4_MASK;
+}
+
+bool SpritesAreMagnified2X(const register_file_t& registers)
+{
+    return registers[1] & constants::VR1_MAG2X_MASK;
+}
+
 bool ActiveDisplayAreaIsBlanked(const register_file_t& registers)
 {
     return (registers[1] & constants::VR1_BLANK_MASK) == 0;
@@ -619,7 +629,6 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
 {
     using namespace TMS9918A::constants;
     using namespace TMS9918A;
-    static unsigned char previous_sprite_bits[SCREEN_Y][SCREEN_X];
 
     uint8_t flags_set = 0;
 
@@ -634,10 +643,10 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
     }
 
     if(sprites_visible) {
-        int sprite_table_address = (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
-        bool mag2x = registers[1] & VR1_MAG2X_MASK;
-        bool size4 = registers[1] & VR1_SIZE4_MASK;
 
+        int sprite_table_address = (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
+        bool mag2x = SpritesAreMagnified2X(registers);
+        bool size4 = SpritesAreSize4(registers);
         int sprite_count = 32;
         for(int i = 0; i < 32; i++) {
             auto sprite = memory.begin() + sprite_table_address + i * 4;
@@ -647,77 +656,71 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
             }
         }
 
-        memset(previous_sprite_bits, 0, SCREEN_X * SCREEN_Y);
+        for(int row = 0; row < SCREEN_Y; row++) {
+            int sprites_in_row = 0;
+            for(int i = sprite_count - 1; i >= 0; i--) {
+                auto sprite = memory.begin() + sprite_table_address + i * 4;
 
-        for(int i = sprite_count - 1; i >= 0; i--) {
-            auto sprite = memory.begin() + sprite_table_address + i * 4;
+                int sprite_y = sprite[0] + 1;
+                int sprite_x = sprite[1];
+                int sprite_name = sprite[2];
+                bool sprite_earlyclock = sprite[3] & SPRITE_EARLY_CLOCK_MASK;
+                int sprite_color = sprite[3] & SPRITE_COLOR_MASK;
 
-            int sprite_y = sprite[0] + 1;
-            int sprite_x = sprite[1];
-            int sprite_name = sprite[2];
-            bool sprite_earlyclock = sprite[3] & SPRITE_EARLY_CLOCK_MASK;
-            int sprite_color = sprite[3] & SPRITE_COLOR_MASK;
+                // printf("sprite %d: %d %d %d %d\n", i, sprite_x, sprite_y, sprite_name, sprite_color);
 
-            // printf("sprite %d: %d %d %d %d\n", i, sprite_x, sprite_y, sprite_name, sprite_color);
+                if(sprite_earlyclock) {
+                    sprite_x -= 32;
+                }
 
-            if(sprite_earlyclock) {
-                sprite_x -= 32;
-            }
+                int size_pixels = 8;
+                if(mag2x) {
+                    size_pixels *= 2;
+                }
 
-            int size_pixels = 8;
-            if(mag2x) {
-                size_pixels *= 2;
-            }
+                if(size4) {
+                    size_pixels *= 2;
+                }
 
-            if(size4) {
-                size_pixels *= 2;
-            }
+                int start_x = std::max(0, sprite_x);
+                int start_y = std::max(0, sprite_y);
+                int end_x = std::min(sprite_x + size_pixels, SCREEN_X) - 1;
+                int end_y = std::min(sprite_y + size_pixels, SCREEN_Y) - 1;
 
-            int start_x = std::max(0, sprite_x);
-            int start_y = std::max(0, sprite_y);
-            int end_x = std::min(sprite_x + size_pixels, SCREEN_X) - 1;
-            int end_y = std::min(sprite_y + size_pixels, SCREEN_Y) - 1;
+                if(start_y <= row && row <= end_y) {
 
-            for(int y = start_y; y <= end_y; y++) {
-                for(int x = start_x; x <= end_x; x++) {
+                    int within_sprite_y = mag2x ? ((row - sprite_y) / 2) : (row - sprite_y);
 
-                    int within_sprite_x, within_sprite_y;
-
-                    if(mag2x) {
-                        within_sprite_x = (x - sprite_x) / 2;
-                        within_sprite_y = (y - sprite_y) / 2;
-                    } else {
-                        within_sprite_x = x - sprite_x;
-                        within_sprite_y = y - sprite_y;
+                    sprites_in_row ++;
+                    if(sprites_in_row > 5) {
+                        flags_set |= VDP_STATUS_COINC_BIT;
                     }
 
-                    int bit = 0;
+                    for(int x = start_x; x <= end_x; x++) {
 
-                    if(size4) {
+                        int within_sprite_x = mag2x ? ((x - sprite_x) / 2) : (x - sprite_x);
 
-                        int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
-                        int within_quadrant_y = within_sprite_y % 8;
-                        int within_quadrant_x = within_sprite_x % 8;
-                        int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
-                        int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
-                        bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
+                        int bit = 0;
 
-                    } else {
+                        if(size4) {
 
-                        int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
-                        bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
-                    }
+                            int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
+                            int within_quadrant_y = within_sprite_y % 8;
+                            int within_quadrant_x = within_sprite_x % 8;
+                            int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
+                            int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
+                            bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
 
-                    if(bit) {
-                        if(previous_sprite_bits[y][x] != 0) {
-                            flags_set |= VDP_STATUS_COINC_BIT;
-                            // XXX should also set the sprite collision number bitfield
+                        } else {
+
+                            int sprite_pattern_address = ((registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
+                            bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
                         }
-                        previous_sprite_bits[y][x] = 0xFF;
-                        if(sprite_color != 0) {
+
+                        if(bit && (sprite_color != 0)) {
                             uint8_t color[3];
                             nybble_to_color(sprite_color, color);
-                            SetPixel(x, y, color[0], color[1], color[2]);
+                            SetPixel(x, row, color[0], color[1], color[2]);
                         }
                     }
                 }
