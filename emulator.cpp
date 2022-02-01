@@ -443,6 +443,8 @@ static constexpr int SPRITE_COLOR_MASK = 0x0F;
 static constexpr int SPRITE_NAME_SHIFT = 3;
 static constexpr int SPRITE_NAME_MASK_SIZE4 = 0xFC;
 
+static constexpr int TRANSPARENT_COLOR_INDEX = 0;
+
 static constexpr int REGISTER_COUNT = 8;
 
 };
@@ -556,10 +558,10 @@ void set_color(uint8_t *color, uint8_t r, uint8_t g, uint8_t b)
     color[2] = b;
 }
 
-void nybble_to_color(unsigned int nybble, unsigned char color[3])
+void nybble_to_color(uint8_t nybble, uint8_t color[3])
 {
     static uint8_t nybbles_to_color[16][3] = {
-        {0, 0, 0},
+        {0, 0, 0}, /* if BACKDROP is 0, supply black */
         {0, 0, 0},
         {37, 196, 37},
         {102, 226, 102},
@@ -577,76 +579,71 @@ void nybble_to_color(unsigned int nybble, unsigned char color[3])
         {226, 226, 226},
     };
 
-    if(nybble == 0) {
-        // 0 is transparent
-        return;
-    }
     copy_color(color, nybbles_to_color[nybble]);
 }
 
 
 template <size_t MEMORY_SIZE>
-static void get_color(int x, int y, unsigned char color[3], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+static void FillRowFromPattern(int y, uint8_t row_colors[SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
 {
     using namespace TMS9918A;
     using namespace TMS9918A::constants;
 
-    set_color(color, 0, 0, 0);
-    nybble_to_color(GetBackdropColor(registers), color);
-
-    if(ActiveDisplayAreaIsBlanked(registers)) {
-        return;
-    }
-
     GraphicsMode mode = GetGraphicsMode(registers);
 
-    int col = x / 8;
-    int row = y / 8;
-    int pattern_col = x % 8;
-    int pattern_row = y % 8;
+    for(int x = 0; x < SCREEN_X; x++) {
+        row_colors[x] = GetBackdropColor(registers);
 
-    int which_color = 8;
-    int pattern_address;
-    int color_address;
+        int col = x / 8;
+        int row = y / 8;
+        int pattern_col = x % 8;
+        int pattern_row = y % 8;
 
-    int name_table_address = GetNameTableBase(registers) | (row << ROW_SHIFT) | col;
-    unsigned char pattern_name = memory[name_table_address];
+        int which_color = 8;
+        int pattern_address;
+        int color_address;
 
-    if(mode == GraphicsMode::GRAPHICS_I) {
+        int name_table_address = GetNameTableBase(registers) | (row << ROW_SHIFT) | col;
+        unsigned char pattern_name = memory[name_table_address];
 
-        pattern_address = ((registers[4] & VR4_PATTERN_MASK_STANDARD) << VR4_PATTERN_SHIFT_STANDARD) | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row;
+        if(mode == GraphicsMode::GRAPHICS_I) {
 
-        color_address = ((registers[3] & VR3_COLORTABLE_MASK_STANDARD) << VR3_COLORTABLE_SHIFT_STANDARD) | (pattern_name >> CHARACTER_COLOR_SHIFT);
+            pattern_address = ((registers[4] & VR4_PATTERN_MASK_STANDARD) << VR4_PATTERN_SHIFT_STANDARD) | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row;
 
-    } else if(mode == GraphicsMode::GRAPHICS_II) {
+            color_address = ((registers[3] & VR3_COLORTABLE_MASK_STANDARD) << VR3_COLORTABLE_SHIFT_STANDARD) | (pattern_name >> CHARACTER_COLOR_SHIFT);
 
-        int third = (row / 8) << THIRD_SHIFT;
+        } else if(mode == GraphicsMode::GRAPHICS_II) {
 
-        int address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
+            int third = (row / 8) << THIRD_SHIFT;
 
-        pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
+            int address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
 
-        color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
+            pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
 
-    } else {
+            color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
 
-        bool M1 = registers[1] & VR1_M1_MASK;
-        bool M2 = registers[1] & VR1_M2_MASK;
-        bool M3 = registers[0] & VR0_M3_MASK;
-        printf("unhandled video mode M1 = %d M2 = %d M3 = %d\n", M1, M2, M3);
+        } else {
 
-        set_color(color, 255, 0, 0);
-        // abort();
-        return;
+            bool M1 = registers[1] & VR1_M1_MASK;
+            bool M2 = registers[1] & VR1_M2_MASK;
+            bool M3 = registers[0] & VR0_M3_MASK;
+            printf("unhandled video mode M1 = %d M2 = %d M3 = %d\n", M1, M2, M3);
+
+            row_colors[row] = 8; // RED
+            // abort();
+            return;
+        }
+
+        int bit = memory[pattern_address] & (0x80 >> pattern_col);
+
+        unsigned int colortable = memory[color_address];
+
+        which_color = bit ? ((colortable >> 4) & 0xf) : (colortable & 0xf);
+
+        if(which_color != TRANSPARENT_COLOR_INDEX) {
+            row_colors[x] = which_color;
+        }
     }
-
-    int bit = memory[pattern_address] & (0x80 >> pattern_col);
-
-    unsigned int colortable = memory[color_address];
-    
-    which_color = bit ? ((colortable >> 4) & 0xf) : (colortable & 0xf);
-
-    nybble_to_color(which_color, color);
 }
 
 template <size_t MEMORY_SIZE, typename SetPixelFunc>
@@ -657,15 +654,25 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
 
     uint8_t flags_set = 0;
 
+    if(ActiveDisplayAreaIsBlanked(registers)) {
+        uint8_t color_index = GetBackdropColor(registers);
+        uint8_t rgb[3];
+        nybble_to_color(color_index, rgb);
+        for(int row = 0; row < SCREEN_Y; row++) {
+            for(int col = 0; col < SCREEN_X; col++) {
+                SetPixel(col, row, rgb[0], rgb[1], rgb[2]);
+            }
+        }
+        return flags_set;
+    }
+
     bool sprites_visible = SpritesVisible(registers);
+
+    static uint8_t row_colors[SCREEN_X];
 
     for(int row = 0; row < SCREEN_Y; row++) {
 
-        for(int col = 0; col < SCREEN_X; col++) {
-            unsigned char color[3];
-            get_color(col, row, color, registers, memory);
-            SetPixel(col, row, color[0], color[1], color[2]);
-        }
+        FillRowFromPattern(row, row_colors, registers, memory);
 
         if(sprites_visible) {
 
@@ -720,35 +727,44 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
                         flags_set |= VDP_STATUS_COINC_BIT;
                     }
 
-                    for(int x = start_x; x <= end_x; x++) {
+                    // XXX it's not clear to me whether COINC is set if sprite is TRANSPARENT.
 
-                        int within_sprite_x = mag2x ? ((x - sprite_x) / 2) : (x - sprite_x);
+                    if(sprite_color != TRANSPARENT_COLOR_INDEX) {
 
-                        int bit = 0;
+                        for(int x = start_x; x <= end_x; x++) {
 
-                        if(size4) {
+                            int within_sprite_x = mag2x ? ((x - sprite_x) / 2) : (x - sprite_x);
 
-                            int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
-                            int within_quadrant_y = within_sprite_y % 8;
-                            int within_quadrant_x = within_sprite_x % 8;
-                            int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
-                            int sprite_pattern_address = GetSpritePatternTableBase(registers) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
-                            bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
+                            int bit = 0;
 
-                        } else {
+                            if(size4) {
 
-                            int sprite_pattern_address = GetSpritePatternTableBase(registers) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
-                            bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
-                        }
+                                int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
+                                int within_quadrant_y = within_sprite_y % 8;
+                                int within_quadrant_x = within_sprite_x % 8;
+                                int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
+                                int sprite_pattern_address = GetSpritePatternTableBase(registers) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
+                                bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
 
-                        if(bit && (sprite_color != 0)) {
-                            uint8_t color[3];
-                            nybble_to_color(sprite_color, color);
-                            SetPixel(x, row, color[0], color[1], color[2]);
+                            } else {
+
+                                int sprite_pattern_address = GetSpritePatternTableBase(registers) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
+                                bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
+                            }
+
+                            if(bit) {
+                                row_colors[x] = sprite_color;
+                            }
                         }
                     }
                 }
             }
+        }
+
+        for(int col = 0; col < SCREEN_X; col++) {
+            uint8_t rgb[3];
+            nybble_to_color(row_colors[col], rgb);
+            SetPixel(col, row, rgb[0], rgb[1], rgb[2]);
         }
     }
     return flags_set;
