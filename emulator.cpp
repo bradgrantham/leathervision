@@ -591,15 +591,14 @@ static void get_color(int x, int y, unsigned char color[3], const TMS9918A::regi
     using namespace TMS9918A;
     using namespace TMS9918A::constants;
 
-    if(ActiveDisplayAreaIsBlanked(registers)) {
+    set_color(color, 0, 0, 0);
+    nybble_to_color(GetBackdropColor(registers), color);
 
-        nybble_to_color(GetBackdropColor(registers), color);
+    if(ActiveDisplayAreaIsBlanked(registers)) {
         return;
     }
 
     GraphicsMode mode = GetGraphicsMode(registers);
-
-    set_color(color, 0, 0, 0);
 
     int col = x / 8;
     int row = y / 8;
