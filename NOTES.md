@@ -1,6 +1,7 @@
 TODO
+* Do inner loop of 8 for GRAPHICS I and II, no reason to fetch 8 times
 * Am I correctly handling signed sprite Y?  (Page 2-26 in VDP docs)
-* Implement fifth sprite check & status register content
+* Implement fifth sprite number 
 * Make IO read/write decoding match schematic
 * Implement backdrop outside scan area in NTSC on Rosa?  Will be visible on NTSC and can match device.  Handling early clock needs care
 
