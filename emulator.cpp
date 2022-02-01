@@ -583,6 +583,69 @@ void nybble_to_color(uint8_t nybble, uint8_t color[3])
     copy_color(color, nybbles_to_color[nybble]);
 }
 
+template <size_t MEMORY_SIZE>
+static void FillRowFromGraphicsI(int y, uint8_t row_colors[SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+{
+    using namespace TMS9918A;
+    using namespace TMS9918A::constants;
+
+    uint16_t row = y / 8;
+    uint16_t pattern_row = y % 8;
+
+    uint16_t name_row_base = GetNameTableBase(registers) | (row << ROW_SHIFT);
+    uint16_t pattern_row_base = (registers[4] & VR4_PATTERN_MASK_STANDARD) << VR4_PATTERN_SHIFT_STANDARD | pattern_row;
+    uint16_t color_base = (registers[3] & VR3_COLORTABLE_MASK_STANDARD) << VR3_COLORTABLE_SHIFT_STANDARD;
+
+    for(int x = 0; x < SCREEN_X; x++) {
+        uint16_t col = x / 8;
+        uint16_t pattern_col = x % 8;
+
+        uint16_t name_table_address = name_row_base | col;
+        uint8_t pattern_name = memory[name_table_address];
+        uint16_t pattern_address = pattern_row_base | (pattern_name << CHARACTER_PATTERN_SHIFT);
+        uint16_t color_address = color_base | (pattern_name >> CHARACTER_COLOR_SHIFT);
+
+        bool bit = memory[pattern_address] & (0x80 >> pattern_col);
+        uint8_t colortable = memory[color_address];
+        uint8_t which_color = bit ? ((colortable >> 4) & 0xf) : (colortable & 0xf);
+
+        row_colors[x] = (which_color != TRANSPARENT_COLOR_INDEX) ? which_color : GetBackdropColor(registers);
+    }
+}
+
+template <size_t MEMORY_SIZE>
+static void FillRowFromGraphicsII(int y, uint8_t row_colors[SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+{
+    using namespace TMS9918A;
+    using namespace TMS9918A::constants;
+
+    uint16_t row = y / 8;
+    uint16_t pattern_row = y % 8;
+    int third = (row / 8) << THIRD_SHIFT;
+
+    uint16_t name_table_row_base = GetNameTableBase(registers) | (row << ROW_SHIFT);
+    uint16_t address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
+    uint16_t pattern_address_row_base = ((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | pattern_row | (third & address_mask);
+    uint16_t color_address_row_base = ((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | pattern_row | (third & address_mask);
+
+    for(int x = 0; x < SCREEN_X; x++) {
+        uint16_t col = x / 8;
+        uint16_t pattern_col = x % 8;
+
+        uint16_t name_table_address = name_table_row_base | col;
+        uint16_t pattern_name = memory[name_table_address];
+
+        uint16_t pattern_address = pattern_address_row_base | ((pattern_name << CHARACTER_PATTERN_SHIFT) & address_mask);
+        uint16_t color_address = color_address_row_base | ((pattern_name << CHARACTER_PATTERN_SHIFT) & address_mask);
+
+        bool bit = memory[pattern_address] & (0x80 >> pattern_col);
+        uint8_t colortable = memory[color_address];
+        uint8_t which_color = bit ? ((colortable >> 4) & 0xf) : (colortable & 0xf);
+
+        row_colors[x] = (which_color != TRANSPARENT_COLOR_INDEX) ? which_color : GetBackdropColor(registers);
+    }
+}
+
 
 template <size_t MEMORY_SIZE>
 static void FillRowFromPattern(int y, uint8_t row_colors[SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
@@ -592,58 +655,25 @@ static void FillRowFromPattern(int y, uint8_t row_colors[SCREEN_X], const TMS991
 
     GraphicsMode mode = GetGraphicsMode(registers);
 
-    for(int x = 0; x < SCREEN_X; x++) {
-        row_colors[x] = GetBackdropColor(registers);
+    if(mode == GraphicsMode::GRAPHICS_I) {
 
-        int col = x / 8;
-        int row = y / 8;
-        int pattern_col = x % 8;
-        int pattern_row = y % 8;
+        FillRowFromGraphicsI(y, row_colors, registers, memory);
 
-        int which_color = 8;
-        int pattern_address;
-        int color_address;
+    } else if(mode == GraphicsMode::GRAPHICS_II) {
 
-        int name_table_address = GetNameTableBase(registers) | (row << ROW_SHIFT) | col;
-        unsigned char pattern_name = memory[name_table_address];
+        FillRowFromGraphicsII(y, row_colors, registers, memory);
 
-        if(mode == GraphicsMode::GRAPHICS_I) {
+    } else {
 
-            pattern_address = ((registers[4] & VR4_PATTERN_MASK_STANDARD) << VR4_PATTERN_SHIFT_STANDARD) | (pattern_name << CHARACTER_PATTERN_SHIFT) | pattern_row;
+        bool M1 = registers[1] & VR1_M1_MASK;
+        bool M2 = registers[1] & VR1_M2_MASK;
+        bool M3 = registers[0] & VR0_M3_MASK;
+        printf("unhandled video mode M1 = %d M2 = %d M3 = %d\n", M1, M2, M3);
 
-            color_address = ((registers[3] & VR3_COLORTABLE_MASK_STANDARD) << VR3_COLORTABLE_SHIFT_STANDARD) | (pattern_name >> CHARACTER_COLOR_SHIFT);
-
-        } else if(mode == GraphicsMode::GRAPHICS_II) {
-
-            int third = (row / 8) << THIRD_SHIFT;
-
-            int address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
-
-            pattern_address = (((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
-
-            color_address = (((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | ((third | (pattern_name << CHARACTER_PATTERN_SHIFT)) & address_mask)) | pattern_row;
-
-        } else {
-
-            bool M1 = registers[1] & VR1_M1_MASK;
-            bool M2 = registers[1] & VR1_M2_MASK;
-            bool M3 = registers[0] & VR0_M3_MASK;
-            printf("unhandled video mode M1 = %d M2 = %d M3 = %d\n", M1, M2, M3);
-
-            row_colors[row] = 8; // RED
-            // abort();
-            return;
+        for(int x = 0; x < SCREEN_X; x++) {
+            row_colors[x] = 8; // RED
         }
-
-        int bit = memory[pattern_address] & (0x80 >> pattern_col);
-
-        unsigned int colortable = memory[color_address];
-
-        which_color = bit ? ((colortable >> 4) & 0xf) : (colortable & 0xf);
-
-        if(which_color != TRANSPARENT_COLOR_INDEX) {
-            row_colors[x] = which_color;
-        }
+        // abort();
     }
 }
 
