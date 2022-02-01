@@ -596,20 +596,32 @@ static void FillRowFromGraphicsI(int y, uint8_t row_colors[SCREEN_X], const TMS9
     uint16_t pattern_row_base = (registers[4] & VR4_PATTERN_MASK_STANDARD) << VR4_PATTERN_SHIFT_STANDARD | pattern_row;
     uint16_t color_base = (registers[3] & VR3_COLORTABLE_MASK_STANDARD) << VR3_COLORTABLE_SHIFT_STANDARD;
 
-    for(int x = 0; x < SCREEN_X; x++) {
+    uint8_t *rowp = row_colors;
+    uint8_t backdrop = GetBackdropColor(registers);
+    for(int x = 0; x < SCREEN_X; x += 8) {
         uint16_t col = x / 8;
-        uint16_t pattern_col = x % 8;
 
         uint16_t name_table_address = name_row_base | col;
         uint8_t pattern_name = memory[name_table_address];
         uint16_t pattern_address = pattern_row_base | (pattern_name << CHARACTER_PATTERN_SHIFT);
         uint16_t color_address = color_base | (pattern_name >> CHARACTER_COLOR_SHIFT);
 
-        bool bit = memory[pattern_address] & (0x80 >> pattern_col);
+        uint8_t pattern_byte = memory[pattern_address];
         uint8_t colortable = memory[color_address];
-        uint8_t which_color = bit ? ((colortable >> 4) & 0xf) : (colortable & 0xf);
+        uint8_t color0 = colortable & 0xf;
+        uint8_t color1 = (colortable >> 4) & 0xf;
 
-        row_colors[x] = (which_color != TRANSPARENT_COLOR_INDEX) ? which_color : GetBackdropColor(registers);
+        if(color0 == TRANSPARENT_COLOR_INDEX) {
+            color0 = backdrop;
+        }
+        if(color1 == TRANSPARENT_COLOR_INDEX) {
+            color1 = backdrop;
+        }
+
+        for(int pattern_col = 0; pattern_col < 8; pattern_col++) {
+            bool bit = pattern_byte & (0x80 >> pattern_col);
+            *rowp++ = bit ? color1 : color0;
+        }
     }
 }
 
@@ -628,21 +640,32 @@ static void FillRowFromGraphicsII(int y, uint8_t row_colors[SCREEN_X], const TMS
     uint16_t pattern_address_row_base = ((registers[4] & VR4_PATTERN_MASK_BITMAP) << VR4_PATTERN_SHIFT_BITMAP) | pattern_row | (third & address_mask);
     uint16_t color_address_row_base = ((registers[3] & VR3_COLORTABLE_MASK_BITMAP) << VR3_COLORTABLE_SHIFT_BITMAP) | pattern_row | (third & address_mask);
 
-    for(int x = 0; x < SCREEN_X; x++) {
+    uint8_t *rowp = row_colors;
+    uint8_t backdrop = GetBackdropColor(registers);
+    for(int x = 0; x < SCREEN_X; x += 8) {
         uint16_t col = x / 8;
-        uint16_t pattern_col = x % 8;
 
         uint16_t name_table_address = name_table_row_base | col;
         uint16_t pattern_name = memory[name_table_address];
 
         uint16_t pattern_address = pattern_address_row_base | ((pattern_name << CHARACTER_PATTERN_SHIFT) & address_mask);
         uint16_t color_address = color_address_row_base | ((pattern_name << CHARACTER_PATTERN_SHIFT) & address_mask);
-
-        bool bit = memory[pattern_address] & (0x80 >> pattern_col);
+        uint8_t pattern_byte = memory[pattern_address];
         uint8_t colortable = memory[color_address];
-        uint8_t which_color = bit ? ((colortable >> 4) & 0xf) : (colortable & 0xf);
+        uint8_t color0 = colortable & 0xf;
+        uint8_t color1 = (colortable >> 4) & 0xf;
 
-        row_colors[x] = (which_color != TRANSPARENT_COLOR_INDEX) ? which_color : GetBackdropColor(registers);
+        if(color0 == TRANSPARENT_COLOR_INDEX) {
+            color0 = backdrop;
+        }
+        if(color1 == TRANSPARENT_COLOR_INDEX) {
+            color1 = backdrop;
+        }
+
+        for(int pattern_col = 0; pattern_col < 8; pattern_col++) {
+            bool bit = pattern_byte & (0x80 >> pattern_col);
+            *rowp++ = bit ? color1 : color0;
+        }
     }
 }
 
