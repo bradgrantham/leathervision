@@ -746,7 +746,7 @@ static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[SCREEN_X],
 }
 
 template <size_t MEMORY_SIZE, typename SetPixelFunc>
-static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, SetPixelFunc SetPixel)
+static uint8_t CreateImageAndReturnFlags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, SetPixelFunc SetPixel)
 {
     using namespace TMS9918A::constants;
     using namespace TMS9918A;
@@ -786,7 +786,7 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
 }
 
 template <size_t MEMORY_SIZE, typename SetPixelFunc>
-static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, SetPixelFunc SetPixel);
+static uint8_t CreateImageAndReturnFlags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, SetPixelFunc SetPixel);
 
 struct TMS9918AEmulator
 {
@@ -827,7 +827,7 @@ struct TMS9918AEmulator
                 set_color(pixel, r, g, b);
             };
 
-            create_image_and_return_flags(registers, memory, pixel_setter);
+            CreateImageAndReturnFlags(registers, memory, pixel_setter);
             char name[512];
             sprintf(name, "frame_%04d_%05d_%d_%02X.ppm", frame_number, write_number, cmd, data);
             FILE *fp = fopen(name, "wb");
@@ -931,7 +931,7 @@ struct TMS9918AEmulator
             set_color(pixel, r, g, b);
         };
 
-        status_register |= create_image_and_return_flags(registers, memory, pixel_setter);
+        status_register |= CreateImageAndReturnFlags(registers, memory, pixel_setter);
     }
 
     bool nmi_required()
@@ -1613,7 +1613,7 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
         set_color(pixel, r, g, b);
     };
     std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
-    create_image_and_return_flags(vdp.registers, vdp.memory, pixel_setter);
+    CreateImageAndReturnFlags(vdp.registers, vdp.memory, pixel_setter);
     std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
     std::chrono::duration<double> elapsed = now - start_time;
     if(false) printf("dump time %f seconds\n", elapsed.count());
@@ -2716,7 +2716,7 @@ void do_vdp_test(const char *vdp_dump_name, const char *image_name)
         uint8_t *pixel = framebuffer + 4 * (x + y * SCREEN_X) + 0;
         set_color(pixel, r, g, b);
     };
-    create_image_and_return_flags(registers, memory, pixel_setter);
+    CreateImageAndReturnFlags(registers, memory, pixel_setter);
     FILE *fp = fopen(image_name, "wb");
     write_image(framebuffer, fp);
     fclose(fp);
