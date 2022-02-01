@@ -429,8 +429,9 @@ static constexpr int VR6_SPRITE_PATTERN_SHIFT = 11;
 static constexpr int VR7_BD_MASK = 0x0F;
 static constexpr int VR7_BD_SHIFT = 0;
 
-static constexpr int VDP_STATUS_VSYNC_BIT = 0x80;
-static constexpr int VDP_STATUS_COINC_BIT = 0x20;
+static constexpr int VDP_STATUS_F_BIT = 0x80;
+static constexpr int VDP_STATUS_5S_BIT = 0x40;
+static constexpr int VDP_STATUS_C_BIT = 0x20;
 
 static constexpr int ROW_SHIFT = 5;
 static constexpr int THIRD_SHIFT = 11;
@@ -480,7 +481,7 @@ bool InterruptsAreEnabled(const register_file_t& registers)
 
 bool VSyncInterruptHasOccurred(uint8_t status_register)
 {
-    return status_register & constants::VDP_STATUS_VSYNC_BIT;
+    return status_register & constants::VDP_STATUS_F_BIT;
 }
 
 GraphicsMode GetGraphicsMode(const register_file_t& registers)
@@ -646,6 +647,104 @@ static void FillRowFromPattern(int y, uint8_t row_colors[SCREEN_X], const TMS991
     }
 }
 
+template <size_t MEMORY_SIZE>
+static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+{
+    using namespace TMS9918A::constants;
+    using namespace TMS9918A;
+
+    bool sprite_touched[SCREEN_X]{};
+
+    uint8_t flags_set = 0;
+
+    // XXX do per row here because will do this per row on Rosa
+    int sprite_table_address = GetSpriteAttributeTableBase(registers);
+    bool mag2x = SpritesAreMagnified2X(registers);
+    bool size4 = SpritesAreSize4(registers);
+    int sprite_count = 32;
+    for(int i = 0; i < 32; i++) {
+        auto sprite = memory.begin() + sprite_table_address + i * 4;
+        if(sprite[0] == 0xD0) {
+            sprite_count = i;
+            break;
+        }
+    }
+
+    int size_pixels = 8;
+    if(mag2x) {
+        size_pixels *= 2;
+    }
+
+    if(size4) {
+        size_pixels *= 2;
+    }
+
+    int sprites_in_row = 0;
+    for(int i = sprite_count - 1; i >= 0; i--) {
+        auto sprite = memory.begin() + sprite_table_address + i * 4;
+
+        int sprite_y = sprite[0] + 1;
+        int sprite_x = sprite[1];
+        int sprite_name = sprite[2];
+        bool sprite_earlyclock = sprite[3] & SPRITE_EARLY_CLOCK_MASK;
+        int sprite_color = sprite[3] & SPRITE_COLOR_MASK;
+
+        // printf("sprite %d: %d %d %d %d\n", i, sprite_x, sprite_y, sprite_name, sprite_color);
+
+        if(sprite_earlyclock) {
+            sprite_x -= 32;
+        }
+
+        int start_x = std::max(0, sprite_x);
+        int start_y = std::max(0, sprite_y);
+        int end_x = std::min(sprite_x + size_pixels, SCREEN_X) - 1;
+        int end_y = std::min(sprite_y + size_pixels, SCREEN_Y) - 1;
+
+        if(start_y <= row && row <= end_y) {
+
+            int within_sprite_y = mag2x ? ((row - sprite_y) / 2) : (row - sprite_y);
+
+            sprites_in_row ++;
+            if(sprites_in_row > 5) {
+                flags_set |= VDP_STATUS_5S_BIT;
+            }
+
+            for(int x = start_x; x <= end_x; x++) {
+
+                int within_sprite_x = mag2x ? ((x - sprite_x) / 2) : (x - sprite_x);
+
+                int bit = 0;
+
+                if(size4) {
+
+                    int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
+                    int within_quadrant_y = within_sprite_y % 8;
+                    int within_quadrant_x = within_sprite_x % 8;
+                    int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
+                    int sprite_pattern_address = GetSpritePatternTableBase(registers) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
+                    bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
+
+                } else {
+
+                    int sprite_pattern_address = GetSpritePatternTableBase(registers) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
+                    bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
+                }
+
+                if(bit) {
+                    if(sprite_touched[x]) {
+                        flags_set |= VDP_STATUS_C_BIT;
+                    }
+                    sprite_touched[x] = true;
+                    if(sprite_color != TRANSPARENT_COLOR_INDEX) {
+                        row_colors[x] = sprite_color;
+                    }
+                }
+            }
+        }
+    }
+    return flags_set;
+}
+
 template <size_t MEMORY_SIZE, typename SetPixelFunc>
 static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, SetPixelFunc SetPixel)
 {
@@ -666,99 +765,14 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
         return flags_set;
     }
 
-    bool sprites_visible = SpritesVisible(registers);
-
     static uint8_t row_colors[SCREEN_X];
 
     for(int row = 0; row < SCREEN_Y; row++) {
 
         FillRowFromPattern(row, row_colors, registers, memory);
 
-        if(sprites_visible) {
-
-            int sprite_table_address = GetSpriteAttributeTableBase(registers);
-            bool mag2x = SpritesAreMagnified2X(registers);
-            bool size4 = SpritesAreSize4(registers);
-            int sprite_count = 32;
-            for(int i = 0; i < 32; i++) {
-                auto sprite = memory.begin() + sprite_table_address + i * 4;
-                if(sprite[0] == 0xD0) {
-                    sprite_count = i;
-                    break;
-                }
-            }
-
-            int sprites_in_row = 0;
-            for(int i = sprite_count - 1; i >= 0; i--) {
-                auto sprite = memory.begin() + sprite_table_address + i * 4;
-
-                int sprite_y = sprite[0] + 1;
-                int sprite_x = sprite[1];
-                int sprite_name = sprite[2];
-                bool sprite_earlyclock = sprite[3] & SPRITE_EARLY_CLOCK_MASK;
-                int sprite_color = sprite[3] & SPRITE_COLOR_MASK;
-
-                // printf("sprite %d: %d %d %d %d\n", i, sprite_x, sprite_y, sprite_name, sprite_color);
-
-                if(sprite_earlyclock) {
-                    sprite_x -= 32;
-                }
-
-                int size_pixels = 8;
-                if(mag2x) {
-                    size_pixels *= 2;
-                }
-
-                if(size4) {
-                    size_pixels *= 2;
-                }
-
-                int start_x = std::max(0, sprite_x);
-                int start_y = std::max(0, sprite_y);
-                int end_x = std::min(sprite_x + size_pixels, SCREEN_X) - 1;
-                int end_y = std::min(sprite_y + size_pixels, SCREEN_Y) - 1;
-
-                if(start_y <= row && row <= end_y) {
-
-                    int within_sprite_y = mag2x ? ((row - sprite_y) / 2) : (row - sprite_y);
-
-                    sprites_in_row ++;
-                    if(sprites_in_row > 5) {
-                        flags_set |= VDP_STATUS_COINC_BIT;
-                    }
-
-                    // XXX it's not clear to me whether COINC is set if sprite is TRANSPARENT.
-
-                    if(sprite_color != TRANSPARENT_COLOR_INDEX) {
-
-                        for(int x = start_x; x <= end_x; x++) {
-
-                            int within_sprite_x = mag2x ? ((x - sprite_x) / 2) : (x - sprite_x);
-
-                            int bit = 0;
-
-                            if(size4) {
-
-                                int quadrant = within_sprite_y / 8 + (within_sprite_x / 8) * 2;
-                                int within_quadrant_y = within_sprite_y % 8;
-                                int within_quadrant_x = within_sprite_x % 8;
-                                int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
-                                int sprite_pattern_address = GetSpritePatternTableBase(registers) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
-                                bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
-
-                            } else {
-
-                                int sprite_pattern_address = GetSpritePatternTableBase(registers) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
-                                bit = memory[sprite_pattern_address] & (0x80 >> within_sprite_x);
-                            }
-
-                            if(bit) {
-                                row_colors[x] = sprite_color;
-                            }
-                        }
-                    }
-                }
-            }
+        if(SpritesVisible(registers)) {
+            flags_set |= AddSpritesToRowReturnFlags(row, row_colors, registers, memory);
         }
 
         for(int col = 0; col < SCREEN_X; col++) {
@@ -767,6 +781,7 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
             SetPixel(col, row, rgb[0], rgb[1], rgb[2]);
         }
     }
+
     return flags_set;
 }
 
@@ -796,7 +811,7 @@ struct TMS9918AEmulator
     void vsync()
     {
         using namespace TMS9918A::constants;
-        status_register |= VDP_STATUS_VSYNC_BIT;
+        status_register |= VDP_STATUS_F_BIT;
     }
 
 
@@ -893,7 +908,7 @@ struct TMS9918AEmulator
             }
             cmd_phase = CMD_PHASE_FIRST;
             uint8_t data = status_register;
-            status_register &= ~(VDP_STATUS_VSYNC_BIT | VDP_STATUS_COINC_BIT);
+            status_register = 0;  
             return data;
         } else {
             uint8_t data = memory[read_address++];
