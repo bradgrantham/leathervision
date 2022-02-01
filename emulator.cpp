@@ -661,28 +661,27 @@ static uint8_t create_image_and_return_flags(const TMS9918A::register_file_t& re
     bool sprites_visible = SpritesVisible(registers);
 
     for(int row = 0; row < SCREEN_Y; row++) {
+
         for(int col = 0; col < SCREEN_X; col++) {
             unsigned char color[3];
             get_color(col, row, color, registers, memory);
             SetPixel(col, row, color[0], color[1], color[2]);
         }
-    }
 
-    if(sprites_visible) {
+        if(sprites_visible) {
 
-        int sprite_table_address = GetSpriteAttributeTableBase(registers);
-        bool mag2x = SpritesAreMagnified2X(registers);
-        bool size4 = SpritesAreSize4(registers);
-        int sprite_count = 32;
-        for(int i = 0; i < 32; i++) {
-            auto sprite = memory.begin() + sprite_table_address + i * 4;
-            if(sprite[0] == 0xD0) {
-                sprite_count = i;
-                break;
+            int sprite_table_address = GetSpriteAttributeTableBase(registers);
+            bool mag2x = SpritesAreMagnified2X(registers);
+            bool size4 = SpritesAreSize4(registers);
+            int sprite_count = 32;
+            for(int i = 0; i < 32; i++) {
+                auto sprite = memory.begin() + sprite_table_address + i * 4;
+                if(sprite[0] == 0xD0) {
+                    sprite_count = i;
+                    break;
+                }
             }
-        }
 
-        for(int row = 0; row < SCREEN_Y; row++) {
             int sprites_in_row = 0;
             for(int i = sprite_count - 1; i >= 0; i--) {
                 auto sprite = memory.begin() + sprite_table_address + i * 4;
