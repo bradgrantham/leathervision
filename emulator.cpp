@@ -36,7 +36,7 @@
 #include <GLFW/glfw3.h>
 
 #include "gl_utility.h"
-#include "interface.h"
+#include "coleco_interface.h"
 
 #define PROVIDE_DEBUGGER
 
@@ -55,6 +55,27 @@ const bool profiling = false;
 
 namespace COLECOinterface
 {
+
+constexpr uint8_t CONTROLLER1_NORTH_BIT = 0x01;
+constexpr uint8_t CONTROLLER1_EAST_BIT = 0x02;
+constexpr uint8_t CONTROLLER1_SOUTH_BIT = 0x04;
+constexpr uint8_t CONTROLLER1_WEST_BIT = 0x08;
+constexpr uint8_t CONTROLLER1_FIRE_LEFT_BIT = 0x40;
+
+constexpr uint8_t CONTROLLER1_KEYPAD_MASK = 0x0F;
+constexpr uint8_t CONTROLLER1_FIRE_RIGHT_BIT = 0x40;
+constexpr uint8_t CONTROLLER1_KEYPAD_0 = 0x05;
+constexpr uint8_t CONTROLLER1_KEYPAD_1 = 0x02;
+constexpr uint8_t CONTROLLER1_KEYPAD_2 = 0x08;
+constexpr uint8_t CONTROLLER1_KEYPAD_3 = 0x03;
+constexpr uint8_t CONTROLLER1_KEYPAD_4 = 0x0D;
+constexpr uint8_t CONTROLLER1_KEYPAD_5 = 0x0C;
+constexpr uint8_t CONTROLLER1_KEYPAD_6 = 0x01;
+constexpr uint8_t CONTROLLER1_KEYPAD_7 = 0x0A;
+constexpr uint8_t CONTROLLER1_KEYPAD_8 = 0x0E;
+constexpr uint8_t CONTROLLER1_KEYPAD_9 = 0x04;
+constexpr uint8_t CONTROLLER1_KEYPAD_asterisk = 0x06;
+constexpr uint8_t CONTROLLER1_KEYPAD_pound = 0x09;
 
 uint8_t controller_1_joystick_state = 0;
 uint8_t controller_2_joystick_state = 0;
@@ -117,25 +138,24 @@ ao_device *open_ao(int rate)
     return device;
 }
 
-
-void start()
+void Start()
 {
     aodev = open_ao(audio_rate);
     if(aodev == NULL)
         exit(EXIT_FAILURE);
 }
 
-int get_audio_sample_rate()
+int GetAudioSampleRate()
 {
     return audio_rate;
 }
 
-size_t get_preferred_audio_buffer_size_samples()
+size_t GetPreferredAudioBufferSampleCount()
 {
     return audio_rate / 100;
 }
 
-void enqueue_audio_samples(uint8_t *buf, size_t sz)
+void EnqueueAudioSamples(uint8_t *buf, size_t sz)
 {
     ao_play(aodev, (char*)buf, sz);
 }
@@ -2168,27 +2188,6 @@ void usage(char *progname)
     printf("\n");
 }
 
-const int CONTROLLER1_NORTH_BIT = 0x01;
-const int CONTROLLER1_EAST_BIT = 0x02;
-const int CONTROLLER1_SOUTH_BIT = 0x04;
-const int CONTROLLER1_WEST_BIT = 0x08;
-const int CONTROLLER1_FIRE_LEFT_BIT = 0x40;
-
-const int CONTROLLER1_KEYPAD_MASK = 0x0F;
-const int CONTROLLER1_FIRE_RIGHT_BIT = 0x40;
-const int CONTROLLER1_KEYPAD_0 = 0x05;
-const int CONTROLLER1_KEYPAD_1 = 0x02;
-const int CONTROLLER1_KEYPAD_2 = 0x08;
-const int CONTROLLER1_KEYPAD_3 = 0x03;
-const int CONTROLLER1_KEYPAD_4 = 0x0D;
-const int CONTROLLER1_KEYPAD_5 = 0x0C;
-const int CONTROLLER1_KEYPAD_6 = 0x01;
-const int CONTROLLER1_KEYPAD_7 = 0x0A;
-const int CONTROLLER1_KEYPAD_8 = 0x0E;
-const int CONTROLLER1_KEYPAD_9 = 0x04;
-const int CONTROLLER1_KEYPAD_asterisk = 0x06;
-const int CONTROLLER1_KEYPAD_pound = 0x09;
-
 using namespace COLECOinterface;
 
 static GLFWwindow* my_window;
@@ -2835,7 +2834,7 @@ int main(int argc, char **argv)
 #endif
 
     initialize_ui();
-    COLECOinterface::start();
+    COLECOinterface::Start();
 
     static unsigned char rom_temp[65536];
     FILE *fp;
@@ -2856,7 +2855,7 @@ int main(int argc, char **argv)
     fclose(fp);
     ROMboard *bios_rom = new ROMboard(0, bios_length, rom_temp);
 
-    audio_flush_func audio_flush = [](uint8_t *buf, size_t sz){ COLECOinterface::enqueue_audio_samples(buf, sz); };
+    audio_flush_func audio_flush = [](uint8_t *buf, size_t sz){ COLECOinterface::EnqueueAudioSamples(buf, sz); };
 
     fp = fopen(cart_name, "rb");
     if(fp == NULL) {
@@ -2872,7 +2871,7 @@ int main(int argc, char **argv)
     ROMboard *cart_rom = new ROMboard(0x8000, cart_length, rom_temp);
 
     clk_t clk = 0;
-    ColecoHW* colecohw = new ColecoHW(COLECOinterface::get_audio_sample_rate(), COLECOinterface::get_preferred_audio_buffer_size_samples());
+    ColecoHW* colecohw = new ColecoHW(COLECOinterface::GetAudioSampleRate(), COLECOinterface::GetPreferredAudioBufferSampleCount());
 
 #ifdef PROVIDE_DEBUGGER
     Debugger *debugger = NULL;
