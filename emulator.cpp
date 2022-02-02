@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <string>
 #include <map>
+#include <deque>
 #include <array>
 #include <chrono>
 #include <thread>
@@ -53,8 +54,26 @@ bool do_save_images_on_vdp_write = false;
 const bool break_on_unknown_address = true;
 const bool profiling = false;
 
-namespace COLECOinterface
+namespace PlatformInterface
 {
+
+std::deque<Event> event_queue;
+
+bool EventIsWaiting()
+{
+    return event_queue.size() > 0;
+}
+
+Event DequeueEvent()
+{
+    if(EventIsWaiting()) {
+        Event e = event_queue.front();
+        event_queue.pop_front();
+        return e;
+    } else
+        return {NONE, 0};
+}
+
 
 constexpr uint8_t CONTROLLER1_NORTH_BIT = 0x01;
 constexpr uint8_t CONTROLLER1_EAST_BIT = 0x02;
@@ -1134,9 +1153,9 @@ struct ColecoHW : board_base
 
         if((addr >= 0xE0) && (addr <= 0xFF) && ((addr & 0x02) == 0x0)) {
             if(reading_joystick) {
-                data = COLECOinterface::GetJoystickState(COLECOinterface::CONTROLLER_1);
+                data = PlatformInterface::GetJoystickState(PlatformInterface::CONTROLLER_1);
             } else {
-                data = COLECOinterface::GetKeypadState(COLECOinterface::CONTROLLER_1);
+                data = PlatformInterface::GetKeypadState(PlatformInterface::CONTROLLER_1);
             }
             if(debug & DEBUG_IO) printf("read controller1 port 0x%02X, read 0x%02X\n", addr, data);
 #ifdef PROVIDE_DEBUGGER
@@ -1147,9 +1166,9 @@ struct ColecoHW : board_base
 
         if((addr >= 0xE0) && (addr <= 0xFF) && ((addr & 0x02) == 0x2)) {
             if(reading_joystick) {
-                data = COLECOinterface::GetJoystickState(COLECOinterface::CONTROLLER_2);
+                data = PlatformInterface::GetJoystickState(PlatformInterface::CONTROLLER_2);
             } else {
-                data = COLECOinterface::GetKeypadState(COLECOinterface::CONTROLLER_2);
+                data = PlatformInterface::GetKeypadState(PlatformInterface::CONTROLLER_2);
             }
             if(debug & DEBUG_IO) printf("read controller2 port 0x%02X, read 0x%02X\n", addr, data);
 #ifdef PROVIDE_DEBUGGER
@@ -2188,7 +2207,7 @@ void usage(char *progname)
     printf("\n");
 }
 
-using namespace COLECOinterface;
+using namespace PlatformInterface;
 
 static GLFWwindow* my_window;
 
@@ -2552,7 +2571,7 @@ void iterate_ui()
 
     CheckOpenGL(__FILE__, __LINE__);
     if(glfwWindowShouldClose(my_window)) {
-        quit = true;
+        event_queue.push_back({QUIT, 0});
         return;
     }
 
@@ -2834,7 +2853,7 @@ int main(int argc, char **argv)
 #endif
 
     initialize_ui();
-    COLECOinterface::Start();
+    PlatformInterface::Start();
 
     static unsigned char rom_temp[65536];
     FILE *fp;
@@ -2855,7 +2874,7 @@ int main(int argc, char **argv)
     fclose(fp);
     ROMboard *bios_rom = new ROMboard(0, bios_length, rom_temp);
 
-    audio_flush_func audio_flush = [](uint8_t *buf, size_t sz){ COLECOinterface::EnqueueAudioSamples(buf, sz); };
+    audio_flush_func audio_flush = [](uint8_t *buf, size_t sz){ PlatformInterface::EnqueueAudioSamples(buf, sz); };
 
     fp = fopen(cart_name, "rb");
     if(fp == NULL) {
@@ -2871,7 +2890,7 @@ int main(int argc, char **argv)
     ROMboard *cart_rom = new ROMboard(0x8000, cart_length, rom_temp);
 
     clk_t clk = 0;
-    ColecoHW* colecohw = new ColecoHW(COLECOinterface::GetAudioSampleRate(), COLECOinterface::GetPreferredAudioBufferSampleCount());
+    ColecoHW* colecohw = new ColecoHW(PlatformInterface::GetAudioSampleRate(), PlatformInterface::GetPreferredAudioBufferSampleCount());
 
 #ifdef PROVIDE_DEBUGGER
     Debugger *debugger = NULL;
@@ -3028,6 +3047,12 @@ int main(int argc, char **argv)
 
 	before = std::chrono::system_clock::now();
         iterate_ui();
+        while(EventIsWaiting()) {
+            Event e = DequeueEvent();
+            if(e.type == PlatformInterface::QUIT) {
+                quit = true;
+            }
+        }
 	after = std::chrono::system_clock::now();
 	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
 	if(profiling) printf("UI %lld\n", real_elapsed_micros.count());
