@@ -41,6 +41,8 @@
 
 #define PROVIDE_DEBUGGER
 
+bool quit = false;
+
 constexpr unsigned int DEBUG_NONE = 0x00;
 constexpr unsigned int DEBUG_ROM = 0x01;
 constexpr unsigned int DEBUG_RAM = 0x02;
@@ -73,7 +75,6 @@ Event DequeueEvent()
     } else
         return {NONE, 0};
 }
-
 
 constexpr uint8_t CONTROLLER1_NORTH_BIT = 0x01;
 constexpr uint8_t CONTROLLER1_EAST_BIT = 0x02;
@@ -195,24 +196,6 @@ volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
 std::vector<board_base*> boards;
-
-bool quit = false;
-
-const int SCREEN_X = 256;
-const int SCREEN_Y = 192;
-const int SCREEN_SCALE = 3;
-
-unsigned char framebuffer[SCREEN_X * SCREEN_Y * 4];
-
-void write_image(unsigned char image[SCREEN_X * SCREEN_Y * 4], FILE *fp)
-{
-    fprintf(fp, "P6 %d %d 255\n", SCREEN_X, SCREEN_Y);
-    for(int row = 0; row < SCREEN_Y; row++) {
-        for(int col = 0; col < SCREEN_X; col++) {
-            fwrite(image + (row * SCREEN_X + col) * 4, 3, 1, fp);
-        }
-    }
-}
 
 typedef std::function<void (uint8_t *audiobuffer, size_t dist)> audio_flush_func;
 
@@ -421,113 +404,121 @@ struct SN76489A
 namespace TMS9918A
 {
 
-namespace constants
+inline void write_rgba8_image_as_P6(uint8_t *imageRGBA, int width, int height, FILE *fp)
 {
+    fprintf(fp, "P6 %d %d 255\n", width, height);
+    for(int row = 0; row < height; row++) {
+        for(int col = 0; col < width; col++) {
+            fwrite(imageRGBA + (row * width + col) * 4, 3, 1, fp);
+        }
+    }
+}
 
-static constexpr int REG_A0_A5_MASK = 0x3F;
-static constexpr int CMD_MASK = 0xC0;
-static constexpr int CMD_SET_REGISTER = 0x80;
-static constexpr int CMD_SET_WRITE_ADDRESS = 0x40;
-static constexpr int CMD_SET_READ_ADDRESS = 0x00;
+constexpr int SCREEN_X = 256;
+constexpr int SCREEN_Y = 192;
 
-static constexpr int VR0_M3_MASK = 0x02;
-[[maybe_unused]] static constexpr int VR0_EXTVID_MASK = 0x01;
+constexpr int REG_A0_A5_MASK = 0x3F;
+constexpr int CMD_MASK = 0xC0;
+constexpr int CMD_SET_REGISTER = 0x80;
+constexpr int CMD_SET_WRITE_ADDRESS = 0x40;
+constexpr int CMD_SET_READ_ADDRESS = 0x00;
 
-[[maybe_unused]] static constexpr int VR1_16K_MASK = 0x80; 
-static constexpr int VR1_BLANK_MASK = 0x40; /* and BLANK is active low */
-static constexpr int VR1_INT_MASK = 0x20;
-static constexpr int VR1_M2_MASK = 0x10;
-static constexpr int VR1_M1_MASK = 0x08;
-static constexpr int VR1_SIZE4_MASK = 0x02;
-static constexpr int VR1_MAG2X_MASK = 0x01;
+constexpr int VR0_M3_MASK = 0x02;
+[[maybe_unused]] constexpr int VR0_EXTVID_MASK = 0x01;
 
-static constexpr int VR2_NAME_TABLE_MASK = 0x0F;
-static constexpr int VR2_NAME_TABLE_SHIFT = 10;
+[[maybe_unused]] constexpr int VR1_16K_MASK = 0x80; 
+constexpr int VR1_BLANK_MASK = 0x40; /* and BLANK is active low */
+constexpr int VR1_INT_MASK = 0x20;
+constexpr int VR1_M2_MASK = 0x10;
+constexpr int VR1_M1_MASK = 0x08;
+constexpr int VR1_SIZE4_MASK = 0x02;
+constexpr int VR1_MAG2X_MASK = 0x01;
 
-static constexpr int VR3_COLORTABLE_MASK_STANDARD = 0xFF;
-static constexpr int VR3_COLORTABLE_SHIFT_STANDARD = 6;
+constexpr int VR2_NAME_TABLE_MASK = 0x0F;
+constexpr int VR2_NAME_TABLE_SHIFT = 10;
 
-static constexpr int VR3_COLORTABLE_MASK_BITMAP = 0x80;
-static constexpr int VR3_COLORTABLE_SHIFT_BITMAP = 6;
+constexpr int VR3_COLORTABLE_MASK_STANDARD = 0xFF;
+constexpr int VR3_COLORTABLE_SHIFT_STANDARD = 6;
 
-static constexpr int VR3_ADDRESS_MASK_BITMAP = 0x7F;
-static constexpr int VR3_ADDRESS_MASK_SHIFT = 6;
+constexpr int VR3_COLORTABLE_MASK_BITMAP = 0x80;
+constexpr int VR3_COLORTABLE_SHIFT_BITMAP = 6;
 
-static constexpr int VR4_PATTERN_MASK_STANDARD = 0x07;
-static constexpr int VR4_PATTERN_SHIFT_STANDARD = 11;
+constexpr int VR3_ADDRESS_MASK_BITMAP = 0x7F;
+constexpr int VR3_ADDRESS_MASK_SHIFT = 6;
 
-static constexpr int VR4_PATTERN_MASK_BITMAP = 0x04;
-static constexpr int VR4_PATTERN_SHIFT_BITMAP = 11;
+constexpr int VR4_PATTERN_MASK_STANDARD = 0x07;
+constexpr int VR4_PATTERN_SHIFT_STANDARD = 11;
 
-static constexpr int VR5_SPRITE_ATTR_MASK = 0x7F;
-static constexpr int VR5_SPRITE_ATTR_SHIFT = 7;
+constexpr int VR4_PATTERN_MASK_BITMAP = 0x04;
+constexpr int VR4_PATTERN_SHIFT_BITMAP = 11;
 
-static constexpr int VR6_SPRITE_PATTERN_MASK = 0x07;
-static constexpr int VR6_SPRITE_PATTERN_SHIFT = 11;
+constexpr int VR5_SPRITE_ATTR_MASK = 0x7F;
+constexpr int VR5_SPRITE_ATTR_SHIFT = 7;
 
-static constexpr int VR7_BD_MASK = 0x0F;
-static constexpr int VR7_BD_SHIFT = 0;
+constexpr int VR6_SPRITE_PATTERN_MASK = 0x07;
+constexpr int VR6_SPRITE_PATTERN_SHIFT = 11;
 
-static constexpr int VDP_STATUS_F_BIT = 0x80;
-static constexpr int VDP_STATUS_5S_BIT = 0x40;
-static constexpr int VDP_STATUS_C_BIT = 0x20;
+constexpr int VR7_BD_MASK = 0x0F;
+constexpr int VR7_BD_SHIFT = 0;
 
-static constexpr int ROW_SHIFT = 5;
-static constexpr int THIRD_SHIFT = 11;
-static constexpr int CHARACTER_PATTERN_SHIFT = 3;
-static constexpr int CHARACTER_COLOR_SHIFT = 3;
-static constexpr int ADDRESS_MASK_FILL = 0x3F;
+constexpr int VDP_STATUS_F_BIT = 0x80;
+constexpr int VDP_STATUS_5S_BIT = 0x40;
+constexpr int VDP_STATUS_C_BIT = 0x20;
 
-static constexpr int SPRITE_EARLY_CLOCK_MASK = 0x80;
-static constexpr int SPRITE_COLOR_MASK = 0x0F;
-static constexpr int SPRITE_NAME_SHIFT = 3;
-static constexpr int SPRITE_NAME_MASK_SIZE4 = 0xFC;
+constexpr int ROW_SHIFT = 5;
+constexpr int THIRD_SHIFT = 11;
+constexpr int CHARACTER_PATTERN_SHIFT = 3;
+constexpr int CHARACTER_COLOR_SHIFT = 3;
+constexpr int ADDRESS_MASK_FILL = 0x3F;
 
-static constexpr int TRANSPARENT_COLOR_INDEX = 0;
+constexpr int SPRITE_EARLY_CLOCK_MASK = 0x80;
+constexpr int SPRITE_COLOR_MASK = 0x0F;
+constexpr int SPRITE_NAME_SHIFT = 3;
+constexpr int SPRITE_NAME_MASK_SIZE4 = 0xFC;
 
-static constexpr int REGISTER_COUNT = 8;
+constexpr int TRANSPARENT_COLOR_INDEX = 0;
 
-};
+constexpr int REGISTER_COUNT = 8;
 
-typedef std::array<uint8_t, constants::REGISTER_COUNT> register_file_t;
+typedef std::array<uint8_t, REGISTER_COUNT> register_file_t;
 
 enum GraphicsMode { GRAPHICS_I, GRAPHICS_II, TEXT, MULTICOLOR, UNDEFINED };
 
 bool SpritesAreSize4(const register_file_t& registers)
 {
-    return registers[1] & constants::VR1_SIZE4_MASK;
+    return registers[1] & VR1_SIZE4_MASK;
 }
 
 bool SpritesAreMagnified2X(const register_file_t& registers)
 {
-    return registers[1] & constants::VR1_MAG2X_MASK;
+    return registers[1] & VR1_MAG2X_MASK;
 }
 
 bool ActiveDisplayAreaIsBlanked(const register_file_t& registers)
 {
-    return (registers[1] & constants::VR1_BLANK_MASK) == 0;
+    return (registers[1] & VR1_BLANK_MASK) == 0;
 }
 
 uint8_t GetBackdropColor(const register_file_t& registers)
 {
-    return (registers[7] & constants::VR7_BD_MASK) >> constants::VR7_BD_SHIFT;
+    return (registers[7] & VR7_BD_MASK) >> VR7_BD_SHIFT;
 }
 
 bool InterruptsAreEnabled(const register_file_t& registers)
 {
-    return registers[1] & constants::VR1_INT_MASK;
+    return registers[1] & VR1_INT_MASK;
 }
 
 bool VSyncInterruptHasOccurred(uint8_t status_register)
 {
-    return status_register & constants::VDP_STATUS_F_BIT;
+    return status_register & VDP_STATUS_F_BIT;
 }
 
 GraphicsMode GetGraphicsMode(const register_file_t& registers)
 {
-    bool M1 = registers[1] & constants::VR1_M1_MASK;
-    bool M2 = registers[1] & constants::VR1_M2_MASK;
-    bool M3 = registers[0] & constants::VR0_M3_MASK;
+    bool M1 = registers[1] & VR1_M1_MASK;
+    bool M2 = registers[1] & VR1_M2_MASK;
+    bool M3 = registers[0] & VR0_M3_MASK;
 
     if(!M1 && !M2 && !M3) {
         return GraphicsMode::GRAPHICS_I;
@@ -569,17 +560,17 @@ bool SpritesVisible(const register_file_t& registers)
 
 uint16_t GetNameTableBase(const register_file_t& registers)
 {
-    return (registers[2] & constants::VR2_NAME_TABLE_MASK) << constants::VR2_NAME_TABLE_SHIFT;
+    return (registers[2] & VR2_NAME_TABLE_MASK) << VR2_NAME_TABLE_SHIFT;
 }
 
 uint16_t GetSpriteAttributeTableBase(const register_file_t& registers)
 {
-    return (registers[5] & constants::VR5_SPRITE_ATTR_MASK) << constants::VR5_SPRITE_ATTR_SHIFT;
+    return (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
 }
 
 uint16_t GetSpritePatternTableBase(const register_file_t& registers)
 {
-    return (registers[6] & constants::VR6_SPRITE_PATTERN_MASK) << constants::VR6_SPRITE_PATTERN_SHIFT;
+    return (registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT;
 }
 
 };
@@ -623,10 +614,9 @@ void nybble_to_color(uint8_t nybble, uint8_t color[3])
 }
 
 template <size_t MEMORY_SIZE>
-static void FillRowFromGraphicsI(int y, uint8_t row_colors[SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+static void FillRowFromGraphicsI(int y, uint8_t row_colors[TMS9918A::SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
 {
     using namespace TMS9918A;
-    using namespace TMS9918A::constants;
 
     uint16_t row = y / 8;
     uint16_t pattern_row = y % 8;
@@ -665,10 +655,9 @@ static void FillRowFromGraphicsI(int y, uint8_t row_colors[SCREEN_X], const TMS9
 }
 
 template <size_t MEMORY_SIZE>
-static void FillRowFromGraphicsII(int y, uint8_t row_colors[SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+static void FillRowFromGraphicsII(int y, uint8_t row_colors[TMS9918A::SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
 {
     using namespace TMS9918A;
-    using namespace TMS9918A::constants;
 
     uint16_t row = y / 8;
     uint16_t pattern_row = y % 8;
@@ -710,10 +699,9 @@ static void FillRowFromGraphicsII(int y, uint8_t row_colors[SCREEN_X], const TMS
 
 
 template <size_t MEMORY_SIZE>
-static void FillRowFromPattern(int y, uint8_t row_colors[SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+static void FillRowFromPattern(int y, uint8_t row_colors[TMS9918A::SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
 {
     using namespace TMS9918A;
-    using namespace TMS9918A::constants;
 
     GraphicsMode mode = GetGraphicsMode(registers);
 
@@ -740,9 +728,8 @@ static void FillRowFromPattern(int y, uint8_t row_colors[SCREEN_X], const TMS991
 }
 
 template <size_t MEMORY_SIZE>
-static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
 {
-    using namespace TMS9918A::constants;
     using namespace TMS9918A;
 
     bool sprite_touched[SCREEN_X]{};
@@ -840,7 +827,6 @@ static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[SCREEN_X],
 template <size_t MEMORY_SIZE, typename SetPixelFunc>
 static uint8_t CreateImageAndReturnFlags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, SetPixelFunc SetPixel)
 {
-    using namespace TMS9918A::constants;
     using namespace TMS9918A;
 
     uint8_t flags_set = 0;
@@ -902,14 +888,14 @@ struct TMS9918AEmulator
 
     void vsync()
     {
-        using namespace TMS9918A::constants;
+        using namespace TMS9918A;
         status_register |= VDP_STATUS_F_BIT;
     }
 
 
     void write(int cmd, unsigned char data)
     {
-        using namespace TMS9918A::constants;
+        using namespace TMS9918A;
         if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, z80state.in_nmi);
         if(do_save_images_on_vdp_write) { /* debug */
 
@@ -923,7 +909,7 @@ struct TMS9918AEmulator
             char name[512];
             sprintf(name, "frame_%04d_%05d_%d_%02X.ppm", frame_number, write_number, cmd, data);
             FILE *fp = fopen(name, "wb");
-            write_image(framebuffer, fp);
+            write_rgba8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
             fclose(fp);
         }
         write_number++;
@@ -988,7 +974,7 @@ struct TMS9918AEmulator
 
     uint8_t read(int cmd)
     {
-        using namespace TMS9918A::constants;
+        using namespace TMS9918A;
         if(cmd) {
             if(cmd_phase == CMD_PHASE_SECOND) {
                 if(z80state.in_nmi) {
@@ -1009,9 +995,9 @@ struct TMS9918AEmulator
         }
     }
 
-    void perform_scanout(unsigned char image[SCREEN_X * SCREEN_Y * 4])
+    void perform_scanout(unsigned char image[TMS9918A::SCREEN_X * TMS9918A::SCREEN_Y * 4])
     {
-        using namespace TMS9918A::constants;
+        using namespace TMS9918A;
         frame_number++;
         write_number = 0;
         if(debug & DEBUG_SCANOUT) {
@@ -1694,6 +1680,7 @@ bool debugger_fill(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
 
 bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
 {
+    using namespace TMS9918A;
     FILE *fp = fopen("output.ppm", "wb");
 
     auto& vdp = d->colecohw->vdp;
@@ -1709,7 +1696,7 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
     std::chrono::duration<double> elapsed = now - start_time;
     if(false) printf("dump time %f seconds\n", elapsed.count());
-    write_image(framebuffer, fp);
+    write_rgba8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
     fclose(fp);
 
     fp = fopen("vdp_memory.txt", "w");
@@ -2236,6 +2223,8 @@ static double gMotionReported = false;
 static double gOldMouseX, gOldMouseY;
 static int gButtonPressed = -1;
 
+unsigned char framebuffer[TMS9918A::SCREEN_X * TMS9918A::SCREEN_Y * 4];
+
 float pixel_to_ui_scale;
 float to_screen_transform[9];
 
@@ -2310,8 +2299,8 @@ void initialize_gl(void)
     // initialize_screen_areas();
     CheckOpenGL(__FILE__, __LINE__);
 
-    screen_image = initialize_texture(SCREEN_X, SCREEN_Y, NULL);
-    screen_image_rectangle.push_back({make_rectangle_array_buffer(0, 0, SCREEN_X, SCREEN_X), raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0});
+    screen_image = initialize_texture(TMS9918A::SCREEN_X, TMS9918A::SCREEN_Y, NULL);
+    screen_image_rectangle.push_back({make_rectangle_array_buffer(0, 0, TMS9918A::SCREEN_X, TMS9918A::SCREEN_Y), raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0});
 }
 
 void set_image_shader(float to_screen[9], const opengl_texture& texture, float x, float y)
@@ -2335,7 +2324,7 @@ static void redraw(GLFWwindow *window)
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, screen_image);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SCREEN_X, SCREEN_Y, 0, GL_RGBA, GL_UNSIGNED_BYTE, framebuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TMS9918A::SCREEN_X, TMS9918A::SCREEN_Y, 0, GL_RGBA, GL_UNSIGNED_BYTE, framebuffer);
     set_image_shader(to_screen_transform, screen_image, 0, 0);
 
     screen_image_rectangle.bind();
@@ -2653,6 +2642,8 @@ void shutdown_ui()
     glfwTerminate();
 }
 
+constexpr int SCREEN_SCALE = 3;
+
 void initialize_ui()
 {
     load_joystick_setup();
@@ -2670,7 +2661,7 @@ void initialize_ui()
 
     // glfwWindowHint(GLFW_SAMPLES, 4);
     glfwWindowHint(GLFW_DOUBLEBUFFER, 1);
-    my_window = glfwCreateWindow(SCREEN_X * SCREEN_SCALE, SCREEN_Y * SCREEN_SCALE, "ColecoVision", NULL, NULL);
+    my_window = glfwCreateWindow(TMS9918A::SCREEN_X * SCREEN_SCALE, TMS9918A::SCREEN_Y * SCREEN_SCALE, "ColecoVision", NULL, NULL);
     if (!my_window) {
         glfwTerminate();
         fprintf(stdout, "Couldn't open main window\n");
@@ -2764,7 +2755,8 @@ void cvhat_read_controllers()
 
 void do_vdp_test(const char *vdp_dump_name, const char *image_name)
 {
-    TMS9918A::register_file_t registers;
+    using namespace TMS9918A;
+    register_file_t registers;
     std::array<uint8_t, 16384> memory;
 
     FILE *vdp_dump_in = fopen(vdp_dump_name, "r");
@@ -2789,7 +2781,7 @@ void do_vdp_test(const char *vdp_dump_name, const char *image_name)
     };
     CreateImageAndReturnFlags(registers, memory, pixel_setter);
     FILE *fp = fopen(image_name, "wb");
-    write_image(framebuffer, fp);
+    write_rgba8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
     fclose(fp);
 }
 
