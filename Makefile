@@ -16,7 +16,7 @@ VPATH=$(BG80D_PATH)
 all: emulator
 # hex2bin hexinfo
 
-emulator: emulator.o z80emu.o readhex.o gl_utility.o
+emulator: emulator.o z80emu.o readhex.o coleco_opengl.o gl_utility.o
 	$(CXX) $(LDFLAGS) $^   -o $@ $(LDLIBS)
 
 hexinfo: hexinfo.o readhex.o
