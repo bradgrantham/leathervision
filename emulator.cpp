@@ -414,43 +414,38 @@ inline void write_rgba8_image_as_P6(uint8_t *imageRGBA, int width, int height, F
     }
 }
 
-void copy_color(uint8_t* dst, uint8_t* src)
+void CopyColor(uint8_t* dst, uint8_t* src)
 {
     dst[0] = src[0];
     dst[1] = src[1];
     dst[2] = src[2];
 }
 
-void set_color(uint8_t *color, uint8_t r, uint8_t g, uint8_t b)
+void SetColor(uint8_t *color, uint8_t r, uint8_t g, uint8_t b)
 {
     color[0] = r;
     color[1] = g;
     color[2] = b;
 }
 
-void nybble_to_color(uint8_t nybble, uint8_t color[3])
-{
-    static uint8_t nybbles_to_color[16][3] = {
-        {0, 0, 0}, /* if BACKDROP is 0, supply black */
-        {0, 0, 0},
-        {62, 184, 73},
-        {116, 208, 125},
-        {89, 85, 224},
-        {128, 118, 241},
-        {185, 94, 81},
-        {100, 220, 239},
-        {219, 101, 89},
-        {255, 137, 125},
-        {204, 195, 94},
-        {222, 208, 135},
-        {58, 162, 65},
-        {183, 102, 181},
-        {204, 204, 204},
-        {255, 255, 255},
-    };
-
-    copy_color(color, nybbles_to_color[nybble]);
-}
+static uint8_t Colors[16][3] = {
+    {0, 0, 0}, /* if BACKDROP is 0, supply black */
+    {0, 0, 0},
+    {62, 184, 73},
+    {116, 208, 125},
+    {89, 85, 224},
+    {128, 118, 241},
+    {185, 94, 81},
+    {100, 220, 239},
+    {219, 101, 89},
+    {255, 137, 125},
+    {204, 195, 94},
+    {222, 208, 135},
+    {58, 162, 65},
+    {183, 102, 181},
+    {204, 204, 204},
+    {255, 255, 255},
+};
 
 template <size_t MEMORY_SIZE>
 static void FillRowFromGraphicsI(int y, uint8_t row_colors[TMS9918A::SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
@@ -673,7 +668,7 @@ static uint8_t CreateImageAndReturnFlags(const TMS9918A::register_file_t& regist
     if(ActiveDisplayAreaIsBlanked(registers)) {
         uint8_t color_index = GetBackdropColor(registers);
         uint8_t rgb[3];
-        nybble_to_color(color_index, rgb);
+        CopyColor(rgb, Colors[color_index]);
         for(int row = 0; row < SCREEN_Y; row++) {
             for(int col = 0; col < SCREEN_X; col++) {
                 SetPixel(col, row, rgb[0], rgb[1], rgb[2]);
@@ -706,7 +701,7 @@ static uint8_t CreateImageAndReturnFlags(const TMS9918A::register_file_t& regist
 
         for(int col = 0; col < SCREEN_X; col++) {
             uint8_t rgb[3];
-            nybble_to_color(row_colors[col], rgb);
+            CopyColor(rgb, Colors[row_colors[col]]);
             SetPixel(col, row, rgb[0], rgb[1], rgb[2]);
         }
     }
@@ -758,7 +753,7 @@ struct TMS9918AEmulator
             static unsigned char framebuffer[SCREEN_X * SCREEN_Y * 4];
             auto pixel_setter = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
                 uint8_t *pixel = framebuffer + 4 * (x + y * SCREEN_X) + 0;
-                set_color(pixel, r, g, b);
+                SetColor(pixel, r, g, b);
             };
 
             CreateImageAndReturnFlags(registers, memory, pixel_setter);
@@ -862,7 +857,7 @@ struct TMS9918AEmulator
 
         auto pixel_setter = [&image](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
             uint8_t *pixel = image + 4 * (x + y * SCREEN_X) + 0;
-            set_color(pixel, r, g, b);
+            SetColor(pixel, r, g, b);
         };
 
         status_register |= CreateImageAndReturnFlags(registers, memory, pixel_setter);
@@ -1545,7 +1540,7 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     static unsigned char framebuffer[SCREEN_X * SCREEN_Y * 4];
     auto pixel_setter = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
         uint8_t *pixel = framebuffer + 4 * (x + y * SCREEN_X) + 0;
-        set_color(pixel, r, g, b);
+        SetColor(pixel, r, g, b);
     };
     std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
     CreateImageAndReturnFlags(vdp.registers, vdp.memory, pixel_setter);
@@ -2636,7 +2631,7 @@ void do_vdp_test(const char *vdp_dump_name, const char *image_name)
     static uint8_t framebuffer[SCREEN_X * SCREEN_Y * 4];
     auto pixel_setter = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
         uint8_t *pixel = framebuffer + 4 * (x + y * SCREEN_X) + 0;
-        set_color(pixel, r, g, b);
+        SetColor(pixel, r, g, b);
     };
     CreateImageAndReturnFlags(registers, memory, pixel_setter);
     FILE *fp = fopen(image_name, "wb");
