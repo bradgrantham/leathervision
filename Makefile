@@ -31,7 +31,9 @@ clean:
 immaculate: clean
 	rm tables.h maketables
 
-emulator.o: emulator.h z80emu.h bg80d.h
+emulator.o: emulator.h z80emu.h bg80d.h coleco_interface.h tms9918.h
+
+coleco_opengl.o: coleco_interface.h tms9918.h
 
 z80emu.o: z80emu.cpp z80emu.h instructions.h macros.h tables.h emulator.h
 
