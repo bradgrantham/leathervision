@@ -22,13 +22,13 @@ TODO
 | Spy Hunter Prototype | playable | |
 | Spy Hunter | playable | |
 | Moon Patrol (prototype) | playable | |
-| Jungle Hunt | unstable | occasional "cmd_phase was reset in ISR" |
+| Beamrider | playable | |
+| Super Cross Force | playable | |
+| Jungle Hunt | unstable | occasional "cmd_phase was reset in ISR".  top of vines should be hidden |
 | Q-bert | playable | (but known to make unknown command 0xC0 to VDP, ignored) |
 | Pitfall II - Lost Caverns | playable | a little chirping during soundtrack - am I not doing silencing correctly? |
 | Miner 2049er | playable | weird tone at beginning |
 | Popeye | playable | strange high-pitched whistle when there seems like there should be a rest between notes during play |
-| Super Cross Force | playable | there's no animation during explosion - is that normal? |
-| Beamrider | playable | stars show up after dying - is that normal? |
 | Super Action Controller Test Cartridge | playable | is it missing some glyphs because it's assuming Atari joystick for some reason? |
 | Frogger | hang WONTFIX | repeated note after drawing initial screen, no recognition of game start |
 | Slither | unknown | appears to work but requires Roller Controller (trackball) |
