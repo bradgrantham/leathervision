@@ -30,25 +30,8 @@
 
 #define PROVIDE_DEBUGGER
 
-bool quit = false;
-
-constexpr unsigned int DEBUG_NONE = 0x00;
-constexpr unsigned int DEBUG_ROM = 0x01;
-constexpr unsigned int DEBUG_RAM = 0x02;
-constexpr unsigned int DEBUG_IO = 0x04;
-constexpr unsigned int DEBUG_SCANOUT = 0x08;
-constexpr unsigned int DEBUG_VDP_OPERATIONS = 0x10;
-bool save_vdp = false;
-unsigned int debug = DEBUG_NONE;
-bool abort_on_exception = false;
-bool do_save_images_on_vdp_write = false;
-const bool break_on_unknown_address = true;
-const bool profiling = false;
-
-
-Z80_STATE z80state;
-bool Z80_INTERRUPT_FETCH = false;
-unsigned short Z80_INTERRUPT_FETCH_DATA;
+bool quit_requested = false;
+bool enter_debugger = false; 
 
 typedef long long clk_t;
 
@@ -56,10 +39,36 @@ constexpr clk_t machine_clock_rate = 3579545;
 constexpr uint32_t slice_frequency = 60;
 constexpr uint32_t clocks_per_slice = machine_clock_rate / slice_frequency;
 constexpr clk_t micros_per_slice = 1000000 / slice_frequency;
-volatile bool run_fast = false;
-volatile bool pause_cpu = false;
 
-std::vector<board_base*> boards;
+constexpr unsigned int DEBUG_NONE = 0x00;
+constexpr unsigned int DEBUG_ROM = 0x01;
+constexpr unsigned int DEBUG_RAM = 0x02;
+constexpr unsigned int DEBUG_IO = 0x04;
+constexpr unsigned int DEBUG_SCANOUT = 0x08;
+constexpr unsigned int DEBUG_VDP_OPERATIONS = 0x10;
+unsigned int debug = DEBUG_NONE;
+bool abort_on_exception = false;
+bool do_save_images_on_vdp_write = false;
+constexpr bool break_on_unknown_address = true;
+
+Z80_STATE z80state;
+bool Z80_INTERRUPT_FETCH = false;
+unsigned short Z80_INTERRUPT_FETCH_DATA;
+
+
+void print_state(Z80_STATE* state)
+{
+    printf("BC :%04X  DE :%04X  HL :%04X  AF :%04X  IX : %04X  IY :%04X  SP :%04X\n",
+        state->registers.word[Z80_BC], state->registers.word[Z80_DE],
+        state->registers.word[Z80_HL], state->registers.word[Z80_AF],
+        state->registers.word[Z80_IX], state->registers.word[Z80_IY],
+        state->registers.word[Z80_SP]);
+    printf("BC':%04X  DE':%04X  HL':%04X  AF':%04X\n",
+        state->alternates[Z80_BC], state->alternates[Z80_DE],
+        state->alternates[Z80_HL], state->alternates[Z80_AF]);
+    printf("PC :%04X\n",
+        state->pc);
+}
 
 typedef std::function<uint8_t (const uint8_t *registers, const uint8_t *memory)> tms9918_scanout_func;
 typedef std::function<void (uint8_t *audiobuffer, size_t dist)> audio_flush_func;
@@ -423,7 +432,6 @@ struct TMS9918AEmulator
     }
 };
 
-
 struct ColecoHW : board_base
 {
     TMS9918AEmulator vdp;
@@ -657,19 +665,6 @@ struct ROMboard : board_base
     }
 };
 
-void print_state(Z80_STATE* state)
-{
-    printf("BC :%04X  DE :%04X  HL :%04X  AF :%04X  IX : %04X  IY :%04X  SP :%04X\n",
-        state->registers.word[Z80_BC], state->registers.word[Z80_DE],
-        state->registers.word[Z80_HL], state->registers.word[Z80_AF],
-        state->registers.word[Z80_IX], state->registers.word[Z80_IY],
-        state->registers.word[Z80_SP]);
-    printf("BC':%04X  DE':%04X  HL':%04X  AF':%04X\n",
-        state->alternates[Z80_BC], state->alternates[Z80_DE],
-        state->alternates[Z80_HL], state->alternates[Z80_AF]);
-    printf("PC :%04X\n",
-        state->pc);
-}
 
 #ifdef PROVIDE_DEBUGGER
 
@@ -1270,7 +1265,7 @@ bool debugger_pc(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state
 
 bool debugger_quit(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
 {
-    quit = true;
+    quit_requested = true;
     return true;
 }
 
@@ -1508,8 +1503,6 @@ bool Debugger::should_debug(std::vector<board_base*>& boards, Z80_STATE* state)
     return should;
 }
 
-bool enter_debugger = false;
-
 void mark_enter_debugger(int signal)
 {
     enter_debugger = true;
@@ -1551,7 +1544,7 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80_STATE* state)
                 line = readline("? ");
                 if (line == NULL) {
                     printf("\n");
-                    quit = true;
+                    quit_requested = true;
                     run = true;
                 } else {
                     if(strlen(line) > 0) {
@@ -1583,7 +1576,21 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80_STATE* state)
     state_may_have_changed = true;
 }
 
+#else
+
+struct Debugger
+{
+    Debugger(ColecoHW *colecohw, clk_t& clk) {}
+}
+
 #endif
+
+constexpr bool profiling = false;
+
+volatile bool run_fast = false;
+volatile bool pause_cpu = false;
+
+std::vector<board_base*> boards;
 
 void usage(char *progname)
 {
@@ -1631,6 +1638,30 @@ void do_vdp_test(const char *vdp_dump_name, const char *image_name)
     FILE *fp = fopen(image_name, "wb");
     write_rgba8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
     fclose(fp);
+}
+
+void WriteVDPStateToFile(const char *base, int which, const uint8_t* registers, const uint8_t *memory, FILE *vdp_file)
+{
+    fprintf(vdp_file, "# %s_%02d.vdp, 8 register bytes, 16384 RAM bytes\n", base, which);
+    for(size_t i = 0; i < 8; i++) {
+        bool more_in_row = ((i + 1) % 8) != 0;
+        fprintf(vdp_file, "%u%s", registers[i], more_in_row ? " " : "\n");
+    }
+    fputs("", vdp_file);
+    for(size_t i = 0; i < 16384; i++) {
+        bool more_in_row = ((i + 1) % 16) != 0;
+        fprintf(vdp_file, "%u%s", memory[i], more_in_row ? " " : "\n");
+    }
+    fputs("", vdp_file);
+}
+
+void SaveVDPState(const TMS9918AEmulator *vdp, int which)
+{
+    static char filename[512];
+    sprintf(filename, "%s_%02d.vdp", getenv("VDP_OUT_BASE"), which);
+    FILE *vdp_file = fopen(filename, "w");
+    WriteVDPStateToFile(getenv("VDP_OUT_BASE"), which, vdp->registers.data(), vdp->memory.data(), vdp_file);
+    fclose(vdp_file);
 }
 
 int main(int argc, char **argv)
@@ -1686,12 +1717,6 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-#ifdef __linux__
-    if(!cvhat_init()) {
-	printf("couldn't connect to colecovision controller HAT.\n");
-    }
-#endif
-
     PlatformInterface::Start();
 
     static unsigned char rom_temp[65536];
@@ -1736,9 +1761,10 @@ int main(int argc, char **argv)
 
     clk_t clk = 0;
     ColecoHW* colecohw = new ColecoHW(PlatformInterface::GetAudioSampleRate(), PlatformInterface::GetPreferredAudioBufferSampleCount());
+    bool save_vdp = false;
 
-#ifdef PROVIDE_DEBUGGER
     Debugger *debugger = NULL;
+#ifdef PROVIDE_DEBUGGER
     if(do_debugger) {
         debugger = new Debugger(colecohw, clk);
     }
@@ -1754,7 +1780,6 @@ int main(int argc, char **argv)
     }
 
     memset(&z80state, 0, sizeof(z80state));
-
     Z80Reset(&z80state);
 
 #ifdef PROVIDE_DEBUGGER
@@ -1767,8 +1792,11 @@ int main(int argc, char **argv)
     std::chrono::time_point<std::chrono::system_clock> then = std::chrono::system_clock::now();
     bool nmi_was_issued = false;
 
-    while(!quit)
-    {
+    auto main_loop_body = [&clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &then]() {
+        // bool main_loop_body(clk_t& clk, Debugger *debugger, bool enter_debugger, ColecoHW* colecohw, Z80STATE *z80state, std::vector<board_base*> boards, bool& nmi_was_issued, bool &save_vdp)
+
+        bool quit_requested = false;
+
 #ifdef PROVIDE_DEBUGGER
         if(debugger && (enter_debugger || debugger->should_debug(boards, &z80state))) {
             debugger->go(stdin, boards, &z80state);
@@ -1809,20 +1837,7 @@ int main(int argc, char **argv)
                         colecohw->vdp.perform_scanout(platform_scanout);
                         if(save_vdp) {
                             static int which = 0;
-                            static char filename[512];
-                            sprintf(filename, "%s_%02d.vdp", getenv("VDP_OUT_BASE"), which);
-                            FILE *vdp_file = fopen(filename, "w");
-                            fprintf(vdp_file, "# %s_%02d.vdp, 8 register bytes, 16384 RAM bytes\n", getenv("VDP_OUT_BASE"), which++);
-                            for(size_t i = 0; i < colecohw->vdp.registers.size(); i++) {
-                                bool more_in_row = ((i + 1) % 8) != 0;
-                                fprintf(vdp_file, "%u%s", colecohw->vdp.registers[i], more_in_row ? " " : "\n");
-                            }
-                            fputs("", vdp_file);
-                            for(size_t i = 0; i < colecohw->vdp.memory.size(); i++) {
-                                bool more_in_row = ((i + 1) % 16) != 0;
-                                fprintf(vdp_file, "%u%s", colecohw->vdp.memory[i], more_in_row ? " " : "\n");
-                            }
-                            fputs("", vdp_file);
+                            SaveVDPState(&colecohw->vdp, which++);
                             save_vdp = false;
                         }
                         std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
@@ -1860,7 +1875,7 @@ int main(int argc, char **argv)
             then = now;
         }
 
-	std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
+        std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
         for(auto b = boards.begin(); b != boards.end(); b++) {
             int irq;
             if((*b)->board_get_interrupt(irq)) {
@@ -1872,29 +1887,29 @@ int main(int argc, char **argv)
             }
         }
 
-	std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
-	auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-	if(profiling) printf("interrupts %lld\n", real_elapsed_micros.count());
+        std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
+        auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+        if(profiling) printf("interrupts %lld\n", real_elapsed_micros.count());
 
-	before = std::chrono::system_clock::now();
+        before = std::chrono::system_clock::now();
         for(auto b = boards.begin(); b != boards.end(); b++) {
             (*b)->idle();
         }
-	after = std::chrono::system_clock::now();
-	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-	if(profiling) printf("idle %lld\n", real_elapsed_micros.count());
+        after = std::chrono::system_clock::now();
+        real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+        if(profiling) printf("idle %lld\n", real_elapsed_micros.count());
 
-	before = std::chrono::system_clock::now();
+        before = std::chrono::system_clock::now();
         colecohw->fill_flush_audio(clk, audio_flush);
-	after = std::chrono::system_clock::now();
-	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-	if(profiling) printf("audio %lld\n", real_elapsed_micros.count());
+        after = std::chrono::system_clock::now();
+        real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+        if(profiling) printf("audio %lld\n", real_elapsed_micros.count());
 
-	before = std::chrono::system_clock::now();
-        while(EventIsWaiting()) {
-            Event e = DequeueEvent();
+        before = std::chrono::system_clock::now();
+        while(PlatformInterface::EventIsWaiting()) {
+            PlatformInterface::Event e = PlatformInterface::DequeueEvent();
             if(e.type == PlatformInterface::QUIT) {
-                quit = true;
+                quit_requested = true;
             } else if(e.type == PlatformInterface::RESET) {
                 Z80Reset(&z80state);
             } else if(e.type == PlatformInterface::SAVE_VDP_STATE) {
@@ -1905,10 +1920,16 @@ int main(int argc, char **argv)
                 printf("warning: unhandled platform event type %d\n", e.type);
             }
         }
-	after = std::chrono::system_clock::now();
-	real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-	if(profiling) printf("UI %lld\n", real_elapsed_micros.count());
+        after = std::chrono::system_clock::now();
+        real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+        if(profiling) printf("UI %lld\n", real_elapsed_micros.count());
 
+        return quit_requested;
+    };
+
+    while(!quit_requested)
+    {
+        quit_requested = main_loop_body();
     }
 
     PlatformInterface::Shutdown();

@@ -620,6 +620,11 @@ void Start()
     glfwSetWindowRefreshCallback(my_window, redraw);
     CheckOpenGL(__FILE__, __LINE__);
 
+#ifdef __linux__
+    if(!cvhat_init()) {
+	printf("couldn't connect to colecovision controller HAT.\n");
+    }
+#endif
 }
 
 void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_status_result, [[maybe_unused]] float megahertz)
