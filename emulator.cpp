@@ -422,7 +422,7 @@ struct TMS9918AEmulator
 
     static constexpr int MEMORY_SIZE = 16384;
     std::array<uint8_t, MEMORY_SIZE> memory{};
-    TMS9918A::register_file_t registers{};
+    std::array<uint8_t, 8> registers{};
     uint8_t status_register{0};
 
     enum {CMD_PHASE_FIRST, CMD_PHASE_SECOND} cmd_phase = CMD_PHASE_FIRST;
@@ -453,7 +453,7 @@ struct TMS9918AEmulator
                 SetColor(pixel, r, g, b);
             };
 
-            CreateImageAndReturnFlags(registers, memory, pixel_setter);
+            CreateImageAndReturnFlags(registers.data(), memory.data(), pixel_setter);
             char name[512];
             sprintf(name, "frame_%04d_%05d_%d_%02X.ppm", frame_number, write_number, cmd, data);
             FILE *fp = fopen(name, "wb");
@@ -557,13 +557,13 @@ struct TMS9918AEmulator
             SetColor(pixel, r, g, b);
         };
 
-        status_register |= CreateImageAndReturnFlags(registers, memory, pixel_setter);
+        status_register |= CreateImageAndReturnFlags(registers.data(), memory.data(), pixel_setter);
     }
 
     bool nmi_required()
     {
         using namespace TMS9918A;
-        return InterruptsAreEnabled(registers) && VSyncInterruptHasOccurred(status_register);
+        return InterruptsAreEnabled(registers.data()) && VSyncInterruptHasOccurred(status_register);
     }
 };
 
@@ -1240,7 +1240,7 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
         SetColor(pixel, r, g, b);
     };
     std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
-    CreateImageAndReturnFlags(vdp.registers, vdp.memory, pixel_setter);
+    CreateImageAndReturnFlags(vdp.registers.data(), vdp.memory.data(), pixel_setter);
     std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
     std::chrono::duration<double> elapsed = now - start_time;
     if(false) printf("dump time %f seconds\n", elapsed.count());
@@ -2307,7 +2307,7 @@ void cvhat_read_controllers()
 void do_vdp_test(const char *vdp_dump_name, const char *image_name)
 {
     using namespace TMS9918A;
-    register_file_t registers;
+    std::array<uint8_t, 8> registers;
     std::array<uint8_t, 16384> memory;
 
     FILE *vdp_dump_in = fopen(vdp_dump_name, "r");
@@ -2330,7 +2330,7 @@ void do_vdp_test(const char *vdp_dump_name, const char *image_name)
         uint8_t *pixel = framebuffer + 4 * (x + y * SCREEN_X) + 0;
         SetColor(pixel, r, g, b);
     };
-    CreateImageAndReturnFlags(registers, memory, pixel_setter);
+    CreateImageAndReturnFlags(registers.data(), memory.data(), pixel_setter);
     FILE *fp = fopen(image_name, "wb");
     write_rgba8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
     fclose(fp);

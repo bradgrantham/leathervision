@@ -1,3 +1,6 @@
+#ifndef _TMS9918_H_
+#define _TMS9918_H_
+
 #include <cstdint>
 #include <cstdio>
 #include <array>
@@ -71,31 +74,29 @@ constexpr int TRANSPARENT_COLOR_INDEX = 0;
 
 constexpr int REGISTER_COUNT = 8;
 
-typedef std::array<uint8_t, REGISTER_COUNT> register_file_t;
-
 enum GraphicsMode { GRAPHICS_I, GRAPHICS_II, TEXT, MULTICOLOR, UNDEFINED };
 
-bool SpritesAreSize4(const register_file_t& registers)
+bool SpritesAreSize4(const uint8_t* registers)
 {
     return registers[1] & VR1_SIZE4_MASK;
 }
 
-bool SpritesAreMagnified2X(const register_file_t& registers)
+bool SpritesAreMagnified2X(const uint8_t* registers)
 {
     return registers[1] & VR1_MAG2X_MASK;
 }
 
-bool ActiveDisplayAreaIsBlanked(const register_file_t& registers)
+bool ActiveDisplayAreaIsBlanked(const uint8_t* registers)
 {
     return (registers[1] & VR1_BLANK_MASK) == 0;
 }
 
-uint8_t GetBackdropColor(const register_file_t& registers)
+uint8_t GetBackdropColor(const uint8_t* registers)
 {
     return (registers[7] & VR7_BD_MASK) >> VR7_BD_SHIFT;
 }
 
-bool InterruptsAreEnabled(const register_file_t& registers)
+bool InterruptsAreEnabled(const uint8_t* registers)
 {
     return registers[1] & VR1_INT_MASK;
 }
@@ -105,7 +106,7 @@ bool VSyncInterruptHasOccurred(uint8_t status_register)
     return status_register & VDP_STATUS_F_BIT;
 }
 
-GraphicsMode GetGraphicsMode(const register_file_t& registers)
+GraphicsMode GetGraphicsMode(const uint8_t* registers)
 {
     bool M1 = registers[1] & VR1_M1_MASK;
     bool M2 = registers[1] & VR1_M2_MASK;
@@ -123,7 +124,7 @@ GraphicsMode GetGraphicsMode(const register_file_t& registers)
     return GraphicsMode::UNDEFINED;
 }
 
-bool SpritesVisible(const register_file_t& registers)
+bool SpritesVisible(const uint8_t* registers)
 {
     if(ActiveDisplayAreaIsBlanked(registers)) {
         return false;
@@ -149,17 +150,17 @@ bool SpritesVisible(const register_file_t& registers)
     return false;
 }
 
-uint16_t GetNameTableBase(const register_file_t& registers)
+uint16_t GetNameTableBase(const uint8_t* registers)
 {
     return (registers[2] & VR2_NAME_TABLE_MASK) << VR2_NAME_TABLE_SHIFT;
 }
 
-uint16_t GetSpriteAttributeTableBase(const register_file_t& registers)
+uint16_t GetSpriteAttributeTableBase(const uint8_t* registers)
 {
     return (registers[5] & VR5_SPRITE_ATTR_MASK) << VR5_SPRITE_ATTR_SHIFT;
 }
 
-uint16_t GetSpritePatternTableBase(const register_file_t& registers)
+uint16_t GetSpritePatternTableBase(const uint8_t* registers)
 {
     return (registers[6] & VR6_SPRITE_PATTERN_MASK) << VR6_SPRITE_PATTERN_SHIFT;
 }
@@ -197,8 +198,7 @@ static uint8_t Colors[16][3] = {
     {255, 255, 255},
 };
 
-template <size_t MEMORY_SIZE>
-static void FillRowFromGraphicsI(int y, uint8_t row_colors[TMS9918A::SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+static void FillRowFromGraphicsI(int y, uint8_t row_colors[TMS9918A::SCREEN_X], const uint8_t* registers, const uint8_t* memory)
 {
     using namespace TMS9918A;
 
@@ -238,8 +238,7 @@ static void FillRowFromGraphicsI(int y, uint8_t row_colors[TMS9918A::SCREEN_X], 
     }
 }
 
-template <size_t MEMORY_SIZE>
-static void FillRowFromGraphicsII(int y, uint8_t row_colors[TMS9918A::SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+static void FillRowFromGraphicsII(int y, uint8_t row_colors[TMS9918A::SCREEN_X], const uint8_t* registers, const uint8_t* memory)
 {
     using namespace TMS9918A;
 
@@ -281,9 +280,7 @@ static void FillRowFromGraphicsII(int y, uint8_t row_colors[TMS9918A::SCREEN_X],
     }
 }
 
-
-template <size_t MEMORY_SIZE>
-static void FillRowFromPattern(int y, uint8_t row_colors[TMS9918A::SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+static void FillRowFromPattern(int y, uint8_t row_colors[TMS9918A::SCREEN_X], const uint8_t* registers, const uint8_t* memory)
 {
     using namespace TMS9918A;
 
@@ -311,8 +308,7 @@ static void FillRowFromPattern(int y, uint8_t row_colors[TMS9918A::SCREEN_X], co
     }
 }
 
-template <size_t MEMORY_SIZE>
-static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::SCREEN_X], const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory)
+static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::SCREEN_X], const uint8_t* registers, const uint8_t* memory)
 {
     using namespace TMS9918A;
 
@@ -326,7 +322,7 @@ static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::
     bool size4 = SpritesAreSize4(registers);
     int sprite_count = 32;
     for(int i = 0; i < 32; i++) {
-        auto sprite = memory.begin() + sprite_table_address + i * 4;
+        auto sprite = memory + sprite_table_address + i * 4;
         if(sprite[0] == 0xD0) {
             sprite_count = i;
             break;
@@ -344,7 +340,7 @@ static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::
 
     int sprites_in_row = 0;
     for(int i = sprite_count - 1; i >= 0; i--) {
-        auto sprite = memory.begin() + sprite_table_address + i * 4;
+        auto sprite = memory + sprite_table_address + i * 4;
 
         int sprite_y = sprite[0] + 1;
         int sprite_x = sprite[1];
@@ -408,8 +404,8 @@ static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::
     return flags_set;
 }
 
-template <size_t MEMORY_SIZE, typename SetPixelFunc>
-static uint8_t CreateImageAndReturnFlags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, SetPixelFunc SetPixel)
+template <typename SetPixelFunc>
+static uint8_t CreateImageAndReturnFlags(const uint8_t* registers, const uint8_t* memory, SetPixelFunc SetPixel)
 {
     using namespace TMS9918A;
 
@@ -447,10 +443,6 @@ static uint8_t CreateImageAndReturnFlags(const TMS9918A::register_file_t& regist
     return flags_set;
 }
 
-template <size_t MEMORY_SIZE, typename SetPixelFunc>
-static uint8_t CreateImageAndReturnFlags(const TMS9918A::register_file_t& registers, const std::array<uint8_t, MEMORY_SIZE>& memory, SetPixelFunc SetPixel);
-
-
 };
 
-
+#endif /* _TMS9918_H_ */
