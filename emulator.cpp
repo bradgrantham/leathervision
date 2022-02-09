@@ -22,12 +22,13 @@
 #include <linux/i2c-dev.h>
 #endif
 
-#include <ao/ao.h>
-
 #include "emulator.h"
-
 #include "z80emu.h"
 #include "readhex.h"
+#include "coleco_interface.h"
+#include "tms9918.h"
+
+#include <ao/ao.h>
 
 #if defined(__linux__)
 #include <GL/glew.h>
@@ -38,26 +39,6 @@
 
 #include "gl_utility.h"
 #include "tms9918.h"
-#include "coleco_interface.h"
-
-#define PROVIDE_DEBUGGER
-
-bool quit = false;
-
-constexpr unsigned int DEBUG_NONE = 0x00;
-constexpr unsigned int DEBUG_ROM = 0x01;
-constexpr unsigned int DEBUG_RAM = 0x02;
-constexpr unsigned int DEBUG_IO = 0x04;
-constexpr unsigned int DEBUG_SCANOUT = 0x08;
-constexpr unsigned int DEBUG_VDP_OPERATIONS = 0x10;
-bool save_vdp = false;
-unsigned int debug = DEBUG_NONE;
-bool abort_on_exception = false;
-bool do_save_images_on_vdp_write = false;
-const bool break_on_unknown_address = true;
-const bool profiling = false;
-
-bool save_vdp_colors = false;
 
 namespace PlatformInterface
 {
@@ -332,15 +313,6 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
             case GLFW_KEY_LEFT_SHIFT:
                 shift_pressed = true;
                 break;
-            case GLFW_KEY_V:
-                save_vdp = true;
-                break;
-            case GLFW_KEY_B:
-                save_vdp_colors = true;
-                break;
-            case GLFW_KEY_N:
-                do_save_images_on_vdp_write = !do_save_images_on_vdp_write;
-                break;
             case GLFW_KEY_W:
                 set_bits(controller_1_joystick_state, CONTROLLER1_NORTH_BIT);
                 break;
@@ -400,6 +372,12 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
         }
     } else if(action == GLFW_RELEASE) {
         switch(key) {
+            case GLFW_KEY_V:
+                event_queue.push_back({SAVE_VDP_STATE, 0});
+                break;
+            case GLFW_KEY_N:
+                event_queue.push_back({DEBUG_VDP_WRITES, 0});
+                break;
             case GLFW_KEY_R:
                 event_queue.push_back({RESET, 0});
                 break;
@@ -764,6 +742,23 @@ void cvhat_read_controllers()
 #endif
 
 };
+
+#define PROVIDE_DEBUGGER
+
+bool quit = false;
+
+constexpr unsigned int DEBUG_NONE = 0x00;
+constexpr unsigned int DEBUG_ROM = 0x01;
+constexpr unsigned int DEBUG_RAM = 0x02;
+constexpr unsigned int DEBUG_IO = 0x04;
+constexpr unsigned int DEBUG_SCANOUT = 0x08;
+constexpr unsigned int DEBUG_VDP_OPERATIONS = 0x10;
+bool save_vdp = false;
+unsigned int debug = DEBUG_NONE;
+bool abort_on_exception = false;
+bool do_save_images_on_vdp_write = false;
+const bool break_on_unknown_address = true;
+const bool profiling = false;
 
 
 Z80_STATE z80state;
@@ -2441,7 +2436,6 @@ int main(int argc, char **argv)
         return status_result;
     };
 
-
     fp = fopen(cart_name, "rb");
     if(fp == NULL) {
         fprintf(stderr, "failed to open %s for reading\n", cart_name);
@@ -2619,6 +2613,10 @@ int main(int argc, char **argv)
                 quit = true;
             } else if(e.type == PlatformInterface::RESET) {
                 Z80Reset(&z80state);
+            } else if(e.type == PlatformInterface::SAVE_VDP_STATE) {
+                save_vdp = true;
+            } else if(e.type == PlatformInterface::DEBUG_VDP_WRITES) {
+                do_save_images_on_vdp_write = !do_save_images_on_vdp_write;
             } else {
                 printf("warning: unhandled platform event type %d\n", e.type);
             }

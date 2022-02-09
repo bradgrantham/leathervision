@@ -6,7 +6,7 @@ namespace PlatformInterface
 
 enum EventType
 {
-    NONE, RESET, SPEED, QUIT, PAUSE,
+    NONE, RESET, SPEED, QUIT, PAUSE, SAVE_VDP_STATE, DEBUG_VDP_WRITES,
 };
 
 struct Event {
