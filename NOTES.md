@@ -1,5 +1,4 @@
 TODO
-* Do inner loop of 8 for GRAPHICS I and II, no reason to fetch 8 times
 * Am I correctly handling signed sprite Y?  (Page 2-26 in VDP docs)
 * Implement fifth sprite number 
 * Make IO read/write decoding match schematic
@@ -23,7 +22,7 @@ TODO
 | Spy Hunter Prototype | playable | |
 | Spy Hunter | playable | |
 | Moon Patrol (prototype) | playable | |
-| Jungle Hunt | playable | |
+| Jungle Hunt | unstable | occasional "cmd_phase was reset in ISR" |
 | Q-bert | playable | (but known to make unknown command 0xC0 to VDP, ignored) |
 | Pitfall II - Lost Caverns | playable | a little chirping during soundtrack - am I not doing silencing correctly? |
 | Miner 2049er | playable | weird tone at beginning |
