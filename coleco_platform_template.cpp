@@ -80,16 +80,6 @@ uint8_t GetKeypadState(ControllerIndex controller)
     return data;
 }
 
-int GetAudioSampleRate()
-{
-    return 11050;
-}
-
-size_t GetPreferredAudioBufferSampleCount()
-{
-    return 11050 / 16;
-}
-
 size_t enqueued_audio_samples = 0;
 
 void EnqueueAudioSamples(uint8_t *buf, size_t sz)
@@ -193,10 +183,15 @@ void get_input(void)
     }
 }
 
-void Start()
+void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 {
+    audioSampleRate = 11050;
+    preferredAudioBufferSampleCount = 11050 / 100;
+
     input_thread = new std::thread(get_input);
+
     then = std::chrono::system_clock::now();
+
     printf("\033[2J");
 }
 

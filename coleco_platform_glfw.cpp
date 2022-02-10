@@ -116,16 +116,6 @@ ao_device *open_ao(int rate)
     return device;
 }
 
-int GetAudioSampleRate()
-{
-    return audio_rate;
-}
-
-size_t GetPreferredAudioBufferSampleCount()
-{
-    return audio_rate / 100;
-}
-
 void EnqueueAudioSamples(uint8_t *buf, size_t sz)
 {
     ao_play(aodev, (char*)buf, sz);
@@ -572,14 +562,15 @@ void iterate_ui()
     glfwPollEvents();
 }
 
-
 constexpr int SCREEN_SCALE = 3;
 
-void Start()
+void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 {
     aodev = open_ao(audio_rate);
     if(aodev == NULL)
         exit(EXIT_FAILURE);
+    audioSampleRate = audio_rate;
+    preferredAudioBufferSampleCount = audio_rate / 100;
 
     load_joystick_setup();
 

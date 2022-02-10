@@ -1717,7 +1717,9 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    PlatformInterface::Start();
+    int audioSampleRate;
+    size_t preferredAudioBufferSampleCount;
+    PlatformInterface::Start(audioSampleRate, preferredAudioBufferSampleCount);
 
     static unsigned char rom_temp[65536];
     FILE *fp;
@@ -1760,7 +1762,7 @@ int main(int argc, char **argv)
     ROMboard *cart_rom = new ROMboard(0x8000, cart_length, rom_temp);
 
     clk_t clk = 0;
-    ColecoHW* colecohw = new ColecoHW(PlatformInterface::GetAudioSampleRate(), PlatformInterface::GetPreferredAudioBufferSampleCount());
+    ColecoHW* colecohw = new ColecoHW(audioSampleRate, preferredAudioBufferSampleCount);
     bool save_vdp = false;
 
     Debugger *debugger = NULL;
