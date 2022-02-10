@@ -1,6 +1,6 @@
 #include <deque>
 
-#include "coleco_interface.h"
+#include "coleco_platform.h"
 
 #include <ao/ao.h>
 

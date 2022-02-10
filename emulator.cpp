@@ -25,7 +25,7 @@
 #include "emulator.h"
 #include "z80emu.h"
 #include "readhex.h"
-#include "coleco_interface.h"
+#include "coleco_platform.h"
 #include "tms9918.h"
 
 #define PROVIDE_DEBUGGER

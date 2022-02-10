@@ -16,7 +16,7 @@ VPATH=$(BG80D_PATH)
 all: emulator
 # hex2bin hexinfo
 
-emulator: emulator.o z80emu.o readhex.o coleco_opengl.o gl_utility.o
+emulator: emulator.o z80emu.o readhex.o coleco_platform_glfw.o gl_utility.o
 	$(CXX) $(LDFLAGS) $^   -o $@ $(LDLIBS)
 
 hexinfo: hexinfo.o readhex.o
@@ -31,9 +31,9 @@ clean:
 immaculate: clean
 	rm tables.h maketables
 
-emulator.o: emulator.h z80emu.h bg80d.h coleco_interface.h tms9918.h
+emulator.o: emulator.h z80emu.h bg80d.h coleco_platform.h tms9918.h
 
-coleco_opengl.o: coleco_interface.h tms9918.h
+coleco_platform_glfw.o: coleco_platform.h tms9918.h
 
 z80emu.o: z80emu.cpp z80emu.h instructions.h macros.h tables.h emulator.h
 
