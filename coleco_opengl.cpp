@@ -641,8 +641,14 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
     iterate_ui();
 }
 
-void Shutdown()
+void MainLoopAndShutdown(MainLoopBodyFunc body)
 {
+    bool quit_requested = false;
+    while(!quit_requested)
+    {
+        quit_requested = body();
+    }
+
     glfwTerminate();
 }
 

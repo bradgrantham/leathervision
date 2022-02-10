@@ -1792,10 +1792,7 @@ int main(int argc, char **argv)
     std::chrono::time_point<std::chrono::system_clock> then = std::chrono::system_clock::now();
     bool nmi_was_issued = false;
 
-    auto main_loop_body = [&clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &then]() {
-        // bool main_loop_body(clk_t& clk, Debugger *debugger, bool enter_debugger, ColecoHW* colecohw, Z80STATE *z80state, std::vector<board_base*> boards, bool& nmi_was_issued, bool &save_vdp)
-
-        bool quit_requested = false;
+    PlatformInterface::MainLoopBodyFunc main_loop_body = [&clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &then]() {
 
 #ifdef PROVIDE_DEBUGGER
         if(debugger && (enter_debugger || debugger->should_debug(boards, &z80state))) {
@@ -1927,12 +1924,7 @@ int main(int argc, char **argv)
         return quit_requested;
     };
 
-    while(!quit_requested)
-    {
-        quit_requested = main_loop_body();
-    }
-
-    PlatformInterface::Shutdown();
+    PlatformInterface::MainLoopAndShutdown(main_loop_body);
 
     return 0;
 }

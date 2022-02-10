@@ -33,6 +33,8 @@ void EnqueueAudioSamples(uint8_t *buf, size_t sz);
 
 void Start();
 void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_status_result, float megahertz);  // update display, update events, and block to retrace
-void Shutdown();
+
+typedef std::function<uint8_t ()> MainLoopBodyFunc;
+void MainLoopAndShutdown(MainLoopBodyFunc body);
 
 };
