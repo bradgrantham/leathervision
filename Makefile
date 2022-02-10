@@ -16,7 +16,9 @@ VPATH=$(BG80D_PATH)
 all: emulator
 # hex2bin hexinfo
 
-emulator: emulator.o z80emu.o readhex.o coleco_platform_glfw.o gl_utility.o
+OBJECTS_GLFW = emulator.o z80emu.o readhex.o coleco_platform_glfw.o gl_utility.o
+
+emulator: $(OBJECTS_GLFW)
 	$(CXX) $(LDFLAGS) $^   -o $@ $(LDLIBS)
 
 hexinfo: hexinfo.o readhex.o
@@ -26,7 +28,7 @@ hex2bin: hex2bin.o readhex.o
 	$(CC) hex2bin.o readhex.o -o hex2bin
 
 clean:
-	rm emulator emulator.o z80emu.o readhex.o
+	rm emulator $(OBJECTS_GLFW)
 
 immaculate: clean
 	rm tables.h maketables
