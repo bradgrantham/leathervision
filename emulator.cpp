@@ -401,7 +401,7 @@ struct TMS9918AEmulator
                 } else {
                     printf("cmd_phase was reset outside ISR\n");
                 }
-                abort();
+                if(abort_on_exception) abort();
             }
             cmd_phase = CMD_PHASE_FIRST;
             uint8_t data = status_register;
