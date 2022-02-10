@@ -202,7 +202,7 @@ void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
     }
     window = SDL_CreateWindow("ColecoVision", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, TMS9918A::SCREEN_X * SCREEN_SCALE, TMS9918A::SCREEN_Y * SCREEN_SCALE, 0);
     assert(window);
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     surface = SDL_CreateRGBSurface(0, TMS9918A::SCREEN_X, TMS9918A::SCREEN_Y, 24, 0, 0, 0, 0);
     assert(surface);
 
@@ -210,7 +210,7 @@ void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
     audiospec.freq = 44100;
     audiospec.format = AUDIO_U8;
     audiospec.channels = 1;
-    audiospec.samples = audiospec.freq / 10;
+    audiospec.samples = audiospec.freq / 100;
     audiospec.callback = nullptr;
     SDL_AudioSpec obtained;
 
@@ -219,7 +219,6 @@ void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 
     audioSampleRate = obtained.freq;
     preferredAudioBufferSampleCount = obtained.samples;
-    printf("%d, %zd\n", audioSampleRate, preferredAudioBufferSampleCount);
 
     SDL_PumpEvents();
 
@@ -407,7 +406,7 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
 
     std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
     auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
-    std::this_thread::sleep_for(33333us - elapsed_micros); // 60Hz
+    std::this_thread::sleep_for(16ms - elapsed_micros); // 60Hz
 
     then = now;
 
