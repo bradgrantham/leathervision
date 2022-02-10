@@ -90,9 +90,11 @@ size_t GetPreferredAudioBufferSampleCount()
     return 11050 / 16;
 }
 
+size_t enqueued_audio_samples = 0;
+
 void EnqueueAudioSamples(uint8_t *buf, size_t sz)
 {
-    printf("enqueue %zd audio samples\n", sz);
+    enqueued_audio_samples += sz;
 }
 
 uint8_t framebuffer[TMS9918A::SCREEN_X * TMS9918A::SCREEN_Y * 3];
@@ -195,7 +197,7 @@ void Start()
 {
     input_thread = new std::thread(get_input);
     then = std::chrono::system_clock::now();
-    printf("\033[J");
+    printf("\033[2J");
 }
 
 int frameCount = 0;
@@ -247,7 +249,7 @@ void display_frame()
         memcpy(buffer + bytesToEncode, framebuffer, sizeof(framebuffer));
         bytesToEncode += sizeof(framebuffer);
 
-        printf("\033]1337;File=width=50%%;inline=1:");
+        printf("\033]1337;File=width=85%%;height=85%%;inline=1:");
         base64Encode(buffer, bytesToEncode);
         printf("\007\n");
         fflush(stdout);
@@ -267,8 +269,10 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
 
     vdp_status_result = TMS9918A::CreateImageAndReturnFlags(vdp_registers, vdp_ram, pixel_setter);
 
-    printf("\033[Hframe %d\n", frameCount++);
-    if(frameCount % 10 == 0) {
+    if(frameCount++ % 10 == 0) {
+        printf("\033[H");
+        printf("frame %d\n", frameCount);
+        printf("enqueued %zd audio samples\n", enqueued_audio_samples);
         display_frame();
     }
 

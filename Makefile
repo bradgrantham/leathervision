@@ -33,7 +33,7 @@ hex2bin: hex2bin.o readhex.o
 	$(CC) hex2bin.o readhex.o -o hex2bin
 
 clean:
-	rm emulator $(OBJECTS_GLFW) emulator $(OBJECTS_TERMINAL)
+	rm emulator $(OBJECTS_GLFW) emulator_terminal $(OBJECTS_TERMINAL)
 
 immaculate: clean
 	rm tables.h maketables
