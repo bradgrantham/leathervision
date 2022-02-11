@@ -93,110 +93,19 @@ SDL_AudioFormat actual_audio_format;
 
 void EnqueueAudioSamples(uint8_t *buf, size_t sz)
 {
+    if(audio_is_paused) {
+        audio_is_paused = false;
+        SDL_PauseAudioDevice(audio_device, 0);
+        /* preload a little data to avoid skips? */
+        std::array<uint8_t, 1024> buf{0};
+        SDL_QueueAudio(audio_device, buf.data(), buf.size());
+    }
+
     if(actual_audio_format == AUDIO_U8) {
         SDL_QueueAudio(audio_device, buf, sz);
     }
 
-    if(audio_is_paused) {
-        audio_is_paused = false;
-        SDL_PauseAudioDevice(audio_device, 0);
-    }
-
 }
-
-std::chrono::time_point<std::chrono::system_clock> then;
-
-#if 0
-void get_input(void)
-{
-    using namespace std::chrono_literals;
-    auto set_bits = [](uint8_t& data, uint8_t bits) { data = data | bits; };
-    [[maybe_unused]] auto clear_bits = [](uint8_t& data, uint8_t bits) { data = data & ~bits; };
-    auto set_bitfield = [](uint8_t& data, uint8_t mask, uint8_t bits) { data = (data & ~mask) | bits; };
-    auto press_duration = 50ms;
-
-    while(1) {
-        int f = getchar();
-        switch(f) {
-            case 'q': 
-                event_queue.push_back({QUIT, 0});
-                return;
-            case 'w':
-                set_bits(controller_1_joystick_state, CONTROLLER1_NORTH_BIT);
-                std::this_thread::sleep_for(press_duration); controller_1_joystick_state = 0;
-                break;
-            case 'a':
-                set_bits(controller_1_joystick_state, CONTROLLER1_WEST_BIT);
-                std::this_thread::sleep_for(press_duration); controller_1_joystick_state = 0;
-                break;
-            case 's':
-                set_bits(controller_1_joystick_state, CONTROLLER1_SOUTH_BIT);
-                std::this_thread::sleep_for(press_duration); controller_1_joystick_state = 0;
-                break;
-            case 'd':
-                set_bits(controller_1_joystick_state, CONTROLLER1_EAST_BIT);
-                std::this_thread::sleep_for(press_duration); controller_1_joystick_state = 0;
-                break;
-            case ' ':
-                set_bits(controller_1_joystick_state, CONTROLLER1_FIRE_LEFT_BIT);
-                std::this_thread::sleep_for(press_duration); controller_1_joystick_state = 0;
-                break;
-            case '.':
-                set_bits(controller_1_keypad_state, CONTROLLER1_FIRE_RIGHT_BIT);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-            case '0':
-                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_0);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-            case '1':
-                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_1);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-            case '2':
-                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_2);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-            case '3':
-                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_pound);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-            case '#':
-                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_3);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-            case '4':
-                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_4);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-            case '5':
-                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_5);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-            case '6':
-                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_6);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-            case '7':
-                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_7);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-            case '*':
-                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_asterisk);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-            case '8':
-                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_8);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-            case '9':
-                set_bitfield(controller_1_keypad_state, CONTROLLER1_KEYPAD_MASK, CONTROLLER1_KEYPAD_9);
-                std::this_thread::sleep_for(press_duration); controller_1_keypad_state = 0;
-                break;
-        }
-    }
-}
-#endif
 
 SDL_Window *window;
 SDL_Renderer *renderer;
@@ -250,9 +159,10 @@ void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
     assert(audio_device > 0);
 
     switch(obtained.format) {
-        case AUDIO_U8:
+        case AUDIO_U8: {
             /* okay, native format */
             break;
+        }
         default:
             printf("unknown audio format chosen: %X\n", obtained.format);
             exit(1);
@@ -264,7 +174,6 @@ void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 
     SDL_PumpEvents();
 
-    then = std::chrono::system_clock::now();
 }
 
 bool shift_pressed = false;
@@ -454,17 +363,6 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
     SDL_RenderCopy(renderer, texture, NULL, NULL);
     SDL_RenderPresent(renderer);
     SDL_DestroyTexture(texture);
-
-#if defined(EMSCRIPTEN)
-
-    std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
-    auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
-    // printf("sleep for %lld\n", elapsed_micros.count());
-    std::this_thread::sleep_for(16ms - elapsed_micros); // 60Hz
-    then = now;
-
-#endif /* EMSCRIPTEN */
-
 
     HandleEvents();
 }

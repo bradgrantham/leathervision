@@ -112,6 +112,24 @@ struct SN76489A
     std::vector<uint8_t> audio_buffer;
     clk_t audio_buffer_next_sample{0};
 
+    void reset()
+    {
+        cmd_latched = 0;
+        std::fill(tone_lengths, tone_lengths + 3, 0);
+        std::fill(tone_attenuation, tone_attenuation + 3, 0);
+
+        noise_config = 0;
+        noise_length = 0;
+        noise_length_id = 0;
+        noise_attenuation = 0;
+
+        std::fill(tone_bit, tone_bit + 3, 0);
+
+        noise_register = 0x8000;
+        noise_flipflop = 0;
+    }
+
+
     SN76489A(unsigned int clock_rate, int sample_rate, size_t audio_buffer_size) :
         clock_rate(clock_rate),
         sample_rate(sample_rate),
@@ -312,6 +330,12 @@ struct TMS9918AEmulator
     {
     }
 
+    void reset()
+    {
+        std::fill(registers.begin(), registers.end(), 0);
+        std::fill(memory.begin(), memory.end(), 0);
+    }
+
     void vsync()
     {
         using namespace TMS9918A;
@@ -494,7 +518,7 @@ struct ColecoHW : board_base
             }
         }
 
-        /* if(addr == ColecoHW::SN76489A_PORT) { */
+        /* if(addr == ColecoHW::SN76489A_PORT) */
         if((addr >= 0xE0) && (addr <= 0xFF)) {
             if(debug & DEBUG_IO) printf("audio write 0x%02X\n", data);
             sound.write(data);
@@ -589,6 +613,12 @@ struct ColecoHW : board_base
         }
 
         return false;
+    }
+
+    virtual void reset(void)
+    {
+        vdp.reset();
+        sound.reset();
     }
 
     virtual void init(void)
@@ -1592,8 +1622,6 @@ struct Debugger
 
 #endif
 
-constexpr bool profiling = false;
-
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
@@ -1799,9 +1827,11 @@ int main(int argc, char **argv)
 #endif
 
     bool nmi_was_issued = false;
+    clk_t previous_field_start_clock = clk;
+    std::chrono::time_point<std::chrono::system_clock> emulation_start_time = std::chrono::system_clock::now();
 
-    PlatformInterface::MainLoopBodyFunc main_loop_body = [&clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout]() {
-        (void)debugger;
+    PlatformInterface::MainLoopBodyFunc main_loop_body = [&clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &previous_field_start_clock, &emulation_start_time]() {
+        (void)debugger; // If !PROVIDE_DEBUGGER then debugger is not referenced.
 
 #ifdef PROVIDE_DEBUGGER
         if(debugger && (enter_debugger || debugger->should_debug(boards, &z80state))) {
@@ -1810,19 +1840,15 @@ int main(int argc, char **argv)
         } else
 #endif
         {
-            std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
-
-            clk_t start_of_this_slice = clk;
-            static clk_t previous_field_start_clock = 0;
+            std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
+            auto micros_since_start = std::chrono::duration_cast<std::chrono::microseconds>(now - emulation_start_time);
+            clk_t clock_now = std::max(clk + 10000, machine_clock_rate * micros_since_start.count() / 1000000);
+            if(false) printf("was at %llu, need to be at %llu, need %llu clocks (%.2f millis)\n", clk, clock_now, clock_now - clk, (clock_now - clk) * 1000.0f / machine_clock_rate);
 
             // XXX THIS HAS TO REMAIN 1 UNTIL I CAN ISSUE NonMaskableInterrupt PER-INSTRUCTION
             constexpr int iterated_clock_quantum = 1;
 
-            if(false) {
-                clk += Z80Emulate(&z80state, clocks_per_slice - 1000);
-            }
-
-            while((clk - start_of_this_slice) < clocks_per_slice) {
+            while(clk < clock_now) {
                 clk_t clocks_this_step = Z80Emulate(&z80state, iterated_clock_quantum);
 #ifdef PROVIDE_DEBUGGER
                 if(debugger) {
@@ -1839,16 +1865,12 @@ int main(int argc, char **argv)
                 if(retrace_before != retrace_after) {
                     // printf("VDP frame interrupt %llu, %llu clocks\n", retrace_after, clk - previous_field_start_clock);
                     {
-                        std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
                         colecohw->vdp.perform_scanout(platform_scanout);
                         if(save_vdp) {
                             static int which = 0;
                             SaveVDPState(&colecohw->vdp, which++);
                             save_vdp = false;
                         }
-                        std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
-                        auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-                        if(profiling) printf("VDP scanout %lld\n", real_elapsed_micros.count());
                     }
 
                     colecohw->vdp.vsync();
@@ -1864,14 +1886,8 @@ int main(int argc, char **argv)
                     nmi_was_issued = false;
                 }
             }
-            std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
-            auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-            if(profiling) printf("insns %lld\n", real_elapsed_micros.count());
-
-            std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
         }
 
-        std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();
         for(auto b = boards.begin(); b != boards.end(); b++) {
             int irq;
             if((*b)->board_get_interrupt(irq)) {
@@ -1883,31 +1899,21 @@ int main(int argc, char **argv)
             }
         }
 
-        std::chrono::time_point<std::chrono::system_clock> after = std::chrono::system_clock::now();
-        auto real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-        if(profiling) printf("interrupts %lld\n", real_elapsed_micros.count());
-
-        before = std::chrono::system_clock::now();
         for(auto b = boards.begin(); b != boards.end(); b++) {
             (*b)->idle();
         }
-        after = std::chrono::system_clock::now();
-        real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-        if(profiling) printf("idle %lld\n", real_elapsed_micros.count());
 
-        before = std::chrono::system_clock::now();
         colecohw->fill_flush_audio(clk, audio_flush);
-        after = std::chrono::system_clock::now();
-        real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-        if(profiling) printf("audio %lld\n", real_elapsed_micros.count());
 
-        before = std::chrono::system_clock::now();
         while(PlatformInterface::EventIsWaiting()) {
             PlatformInterface::Event e = PlatformInterface::DequeueEvent();
             if(e.type == PlatformInterface::QUIT) {
                 quit_requested = true;
             } else if(e.type == PlatformInterface::RESET) {
                 Z80Reset(&z80state);
+                for(auto b = boards.begin(); b != boards.end(); b++) {
+                    (*b)->reset();
+                }
             } else if(e.type == PlatformInterface::SAVE_VDP_STATE) {
                 save_vdp = true;
             } else if(e.type == PlatformInterface::DEBUG_VDP_WRITES) {
@@ -1916,11 +1922,8 @@ int main(int argc, char **argv)
                 printf("warning: unhandled platform event type %d\n", e.type);
             }
         }
-        after = std::chrono::system_clock::now();
-        real_elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
-        if(profiling) printf("UI %lld\n", real_elapsed_micros.count());
-
         return quit_requested;
+
     };
 
     PlatformInterface::MainLoopAndShutdown(main_loop_body);

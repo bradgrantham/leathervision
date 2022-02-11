@@ -23,6 +23,7 @@ struct board_base
     virtual void idle(void) {};
     virtual void pause(void) {};
     virtual void resume(void) {};
+    virtual void reset(void) {};
 };
 
 extern std::vector<board_base*> boards;

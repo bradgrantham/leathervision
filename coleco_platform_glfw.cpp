@@ -1,4 +1,5 @@
 #include <deque>
+#include <chrono>
 
 #include "coleco_platform.h"
 
@@ -489,12 +490,6 @@ void iterate_ui()
         return;
     }
 
-    CheckOpenGL(__FILE__, __LINE__);
-    redraw(my_window);
-    CheckOpenGL(__FILE__, __LINE__);
-    glfwSwapBuffers(my_window);
-    CheckOpenGL(__FILE__, __LINE__);
-
     if(false) {
         for(int i = 0; i < 16; i++) {
             if(glfwJoystickPresent(GLFW_JOYSTICK_1 + i)) {
@@ -564,6 +559,8 @@ void iterate_ui()
 
 constexpr int SCREEN_SCALE = 3;
 
+std::chrono::time_point<std::chrono::system_clock> then;
+
 void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 {
     aodev = open_ao(audio_rate);
@@ -616,6 +613,7 @@ void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 	printf("couldn't connect to colecovision controller HAT.\n");
     }
 #endif
+     then = std::chrono::system_clock::now();
 }
 
 void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_status_result, [[maybe_unused]] float megahertz)
@@ -630,6 +628,18 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
     vdp_status_result = TMS9918A::CreateImageAndReturnFlags(vdp_registers, vdp_ram, pixel_setter);
 
     iterate_ui();
+
+    std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
+    std::chrono::duration<float> elapsed = now - then;
+    if(elapsed.count() > .01) {
+        CheckOpenGL(__FILE__, __LINE__);
+        redraw(my_window);
+        CheckOpenGL(__FILE__, __LINE__);
+        glfwSwapBuffers(my_window);
+        CheckOpenGL(__FILE__, __LINE__);
+        then = now;
+    }
+
 }
 
 void MainLoopAndShutdown(MainLoopBodyFunc body)
@@ -637,6 +647,7 @@ void MainLoopAndShutdown(MainLoopBodyFunc body)
     bool quit_requested = false;
     while(!quit_requested)
     {
+        iterate_ui();
         quit_requested = body();
     }
 
