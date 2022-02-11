@@ -461,10 +461,10 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
     auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
     // printf("sleep for %lld\n", elapsed_micros.count());
     std::this_thread::sleep_for(16ms - elapsed_micros); // 60Hz
+    then = now;
 
 #endif /* EMSCRIPTEN */
 
-    then = now;
 
     HandleEvents();
 }
