@@ -1,6 +1,11 @@
 #include <thread>
 #include <deque>
 #include <chrono>
+#include <cassert>
+
+#if defined(EMSCRIPTEN)
+#include <emscripten.h>
+#endif /* EMSCRIPTEN */
 
 #include <SDL2/SDL.h>
 
@@ -84,14 +89,19 @@ uint8_t GetKeypadState(ControllerIndex controller)
 
 SDL_AudioDeviceID audio_device;
 bool audio_is_paused = true;
+SDL_AudioFormat actual_audio_format;
 
 void EnqueueAudioSamples(uint8_t *buf, size_t sz)
 {
-    SDL_QueueAudio(audio_device, buf, sz);
+    if(actual_audio_format == AUDIO_U8) {
+        SDL_QueueAudio(audio_device, buf, sz);
+    }
+
     if(audio_is_paused) {
         audio_is_paused = false;
         SDL_PauseAudioDevice(audio_device, 0);
     }
+
 }
 
 std::chrono::time_point<std::chrono::system_clock> then;
@@ -196,29 +206,61 @@ constexpr int SCREEN_SCALE = 3;
 
 void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 {
+#if defined(EMSCRIPTEN)
+
+    if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS) != 0) {
+        SDL_Log("Unable to initialize SDL: %s", SDL_GetError());
+        exit(1);
+    }
+
+#else /* ! EMSCRIPTEN */
+
     if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) != 0) {
         SDL_Log("Unable to initialize SDL: %s", SDL_GetError());
         exit(1);
     }
+
+#endif /* EMSCRIPTEN */
+
     window = SDL_CreateWindow("ColecoVision", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, TMS9918A::SCREEN_X * SCREEN_SCALE, TMS9918A::SCREEN_Y * SCREEN_SCALE, 0);
-    assert(window);
+    if(!window) {
+        printf("could not open window\n");
+        exit(1);
+    }
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if(!renderer) {
+        printf("could not create renderer\n");
+        exit(1);
+    }
     surface = SDL_CreateRGBSurface(0, TMS9918A::SCREEN_X, TMS9918A::SCREEN_Y, 24, 0, 0, 0, 0);
-    assert(surface);
+    if(!surface) {
+        printf("could not create surface\n");
+        exit(1);
+    }
 
     SDL_AudioSpec audiospec{0};
     audiospec.freq = 44100;
     audiospec.format = AUDIO_U8;
     audiospec.channels = 1;
-    audiospec.samples = audiospec.freq / 100;
+    audiospec.samples = 1024; // audiospec.freq / 100;
     audiospec.callback = nullptr;
     SDL_AudioSpec obtained;
 
-    audio_device = SDL_OpenAudioDevice(nullptr, 0, &audiospec, &obtained, 1);
+    audio_device = SDL_OpenAudioDevice(nullptr, 0, &audiospec, &obtained, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE); // | SDL_AUDIO_ALLOW_FORMAT_CHANGE);
     assert(audio_device > 0);
 
+    switch(obtained.format) {
+        case AUDIO_U8:
+            /* okay, native format */
+            break;
+        default:
+            printf("unknown audio format chosen: %X\n", obtained.format);
+            exit(1);
+    }
+
     audioSampleRate = obtained.freq;
-    preferredAudioBufferSampleCount = obtained.samples;
+    preferredAudioBufferSampleCount = obtained.samples / 2;
+    actual_audio_format = obtained.format;
 
     SDL_PumpEvents();
 
@@ -236,6 +278,11 @@ static void HandleEvents(void)
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
+            case SDL_WINDOWEVENT:
+                switch(event.window.event) {
+
+                }
+                break;
             case SDL_QUIT:
                 event_queue.push_back({QUIT, 0});
                 break;
@@ -399,22 +446,50 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
     if (SDL_MUSTLOCK(surface)) SDL_UnlockSurface(surface);
 
     SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+    if(!texture) {
+        printf("could not create texture\n");
+        exit(1);
+    }
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
     SDL_RenderPresent(renderer);
     SDL_DestroyTexture(texture);
 
+#if defined(EMSCRIPTEN)
+
     std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
     auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
+    // printf("sleep for %lld\n", elapsed_micros.count());
     std::this_thread::sleep_for(16ms - elapsed_micros); // 60Hz
+
+#endif /* EMSCRIPTEN */
 
     then = now;
 
     HandleEvents();
 }
 
+#if defined(EMSCRIPTEN)
+void caller(void *f_)
+{
+    std::function<bool()> *f = (std::function<bool()>*)f_;
+
+    bool quit = (*f)();
+    if(quit) {
+        emscripten_cancel_main_loop();
+    }
+}
+#endif /* EMSCRIPTEN */ 
+
 void MainLoopAndShutdown(MainLoopBodyFunc body)
 {
+#if defined(EMSCRIPTEN)
+
+    std::function<bool()> body_for_emscripten = [&]()->bool{ return body(); };
+    emscripten_set_main_loop_arg(caller, &body_for_emscripten, 0, 1);
+
+#else /* !EMSCRIPTEN */
+
     bool quit_requested = false;
     while(!quit_requested)
     {
@@ -422,6 +497,9 @@ void MainLoopAndShutdown(MainLoopBodyFunc body)
     }
 
     SDL_Quit();
+
+#endif /* EMSCRIPTEN */
+
 }
 
 };

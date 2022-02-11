@@ -28,8 +28,6 @@
 #include "coleco_platform.h"
 #include "tms9918.h"
 
-#define PROVIDE_DEBUGGER
-
 bool quit_requested = false;
 bool enter_debugger = false; 
 
@@ -54,7 +52,6 @@ constexpr bool break_on_unknown_address = true;
 Z80_STATE z80state;
 bool Z80_INTERRUPT_FETCH = false;
 unsigned short Z80_INTERRUPT_FETCH_DATA;
-
 
 void print_state(Z80_STATE* state)
 {
@@ -275,6 +272,16 @@ struct SN76489A
     }
 };
 
+inline void write_rgb8_image_as_P6(uint8_t *imageRGB, int width, int height, FILE *fp)
+{
+    fprintf(fp, "P6 %d %d 255\n", width, height);
+    for(int row = 0; row < height; row++) {
+        for(int col = 0; col < width; col++) {
+            fwrite(imageRGB + (row * width + col) * 3, 3, 1, fp);
+        }
+    }
+}
+
 inline void write_rgba8_image_as_P6(uint8_t *imageRGBA, int width, int height, FILE *fp)
 {
     fprintf(fp, "P6 %d %d 255\n", width, height);
@@ -318,9 +325,9 @@ struct TMS9918AEmulator
         if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, z80state.in_nmi);
         if(do_save_images_on_vdp_write) { /* debug */
 
-            static unsigned char framebuffer[SCREEN_X * SCREEN_Y * 4];
-            auto pixel_setter = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-                uint8_t *pixel = framebuffer + 4 * (x + y * SCREEN_X) + 0;
+            uint8_t framebuffer[SCREEN_X * SCREEN_Y * 3];
+            auto pixel_setter = [&framebuffer](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+                uint8_t *pixel = framebuffer + 3 * (x + y * SCREEN_X) + 0;
                 SetColor(pixel, r, g, b);
             };
 
@@ -328,7 +335,7 @@ struct TMS9918AEmulator
             char name[512];
             sprintf(name, "frame_%04d_%05d_%d_%02X.ppm", frame_number, write_number, cmd, data);
             FILE *fp = fopen(name, "wb");
-            write_rgba8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
+            write_rgb8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
             fclose(fp);
         }
         write_number++;
@@ -933,7 +940,7 @@ bool debugger_readbin(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* 
         fprintf(stderr, "readbin: expected filename and address\n");
         return false;
     }
-    static unsigned char buffer[128];
+    unsigned char buffer[128];
 
     int address;
     if(!lookup_or_parse(d->symbol_to_address, argv[2], address))
@@ -964,7 +971,7 @@ void dump_buffer_hex(int indent, int actual_address, unsigned char *data, int si
     while(size > 0) {
         if(screen_lines >= 24) { 
             printf(":");
-            static char line[512];
+            char line[512];
             fgets(line, sizeof(line), stdin);
             if(strcmp(line, "q") == 0)
                 return;
@@ -1029,7 +1036,7 @@ bool debugger_dump(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[2]);
         return false;
     }
-    static unsigned char buffer[65536];
+    unsigned char buffer[65536];
     for(int i = 0; i < length; i++) {
         Z80_READ_BYTE(address + i, buffer[i]);
     }
@@ -1085,9 +1092,9 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     auto& vdp = d->colecohw->vdp;
 
     // XXX
-    static unsigned char framebuffer[SCREEN_X * SCREEN_Y * 4];
-    auto pixel_setter = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-        uint8_t *pixel = framebuffer + 4 * (x + y * SCREEN_X) + 0;
+    unsigned char framebuffer[SCREEN_X * SCREEN_Y * 3];
+    auto pixel_setter = [&framebuffer](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t *pixel = framebuffer + 3 * (x + y * SCREEN_X) + 0;
         SetColor(pixel, r, g, b);
     };
     std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
@@ -1095,7 +1102,7 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
     std::chrono::duration<double> elapsed = now - start_time;
     if(false) printf("dump time %f seconds\n", elapsed.count());
-    write_rgba8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
+    write_rgb8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
     fclose(fp);
 
     fp = fopen("vdp_memory.txt", "w");
@@ -1581,7 +1588,7 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80_STATE* state)
 struct Debugger
 {
     Debugger(ColecoHW *colecohw, clk_t& clk) {}
-}
+};
 
 #endif
 
@@ -1629,14 +1636,14 @@ void do_vdp_test(const char *vdp_dump_name, const char *image_name)
     }
     fclose(vdp_dump_in);
 
-    static uint8_t framebuffer[SCREEN_X * SCREEN_Y * 4];
-    auto pixel_setter = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-        uint8_t *pixel = framebuffer + 4 * (x + y * SCREEN_X) + 0;
+    uint8_t framebuffer[SCREEN_X * SCREEN_Y * 3];
+    auto pixel_setter = [&framebuffer](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t *pixel = framebuffer + 3 * (x + y * SCREEN_X) + 0;
         SetColor(pixel, r, g, b);
     };
     CreateImageAndReturnFlags(registers.data(), memory.data(), pixel_setter);
     FILE *fp = fopen(image_name, "wb");
-    write_rgba8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
+    write_rgb8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
     fclose(fp);
 }
 
@@ -1657,7 +1664,7 @@ void WriteVDPStateToFile(const char *base, int which, const uint8_t* registers, 
 
 void SaveVDPState(const TMS9918AEmulator *vdp, int which)
 {
-    static char filename[512];
+    char filename[512];
     sprintf(filename, "%s_%02d.vdp", getenv("VDP_OUT_BASE"), which);
     FILE *vdp_file = fopen(filename, "w");
     WriteVDPStateToFile(getenv("VDP_OUT_BASE"), which, vdp->registers.data(), vdp->memory.data(), vdp_file);
@@ -1721,7 +1728,7 @@ int main(int argc, char **argv)
     size_t preferredAudioBufferSampleCount;
     PlatformInterface::Start(audioSampleRate, preferredAudioBufferSampleCount);
 
-    static unsigned char rom_temp[65536];
+    unsigned char rom_temp[65536];
     FILE *fp;
 
     char *bios_name = argv[0];
@@ -1765,7 +1772,7 @@ int main(int argc, char **argv)
     ColecoHW* colecohw = new ColecoHW(audioSampleRate, preferredAudioBufferSampleCount);
     bool save_vdp = false;
 
-    Debugger *debugger = NULL;
+    [[maybe_unused]] Debugger *debugger = NULL;
 #ifdef PROVIDE_DEBUGGER
     if(do_debugger) {
         debugger = new Debugger(colecohw, clk);
@@ -1791,10 +1798,10 @@ int main(int argc, char **argv)
     }
 #endif
 
-    std::chrono::time_point<std::chrono::system_clock> then = std::chrono::system_clock::now();
     bool nmi_was_issued = false;
 
-    PlatformInterface::MainLoopBodyFunc main_loop_body = [&clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &then]() {
+    PlatformInterface::MainLoopBodyFunc main_loop_body = [&clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout]() {
+        (void)debugger;
 
 #ifdef PROVIDE_DEBUGGER
         if(debugger && (enter_debugger || debugger->should_debug(boards, &z80state))) {
@@ -1862,16 +1869,6 @@ int main(int argc, char **argv)
             if(profiling) printf("insns %lld\n", real_elapsed_micros.count());
 
             std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
-
-            auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
-            if(!run_fast || pause_cpu) {
-                // std::this_thread::sleep_for(std::chrono::microseconds(clocks_per_slice * 1000000 / machine_clock_rate) - elapsed_micros);
-                auto remaining_in_slice = std::chrono::microseconds(micros_per_slice) - elapsed_micros;
-                if(profiling) printf("elapsed %lld, sleep %lld\n", elapsed_micros.count(), remaining_in_slice.count());
-                // printf("%f%%\n", 100.0 - elapsed_micros.count() * 100.0 / micros_per_slice);
-            }
-
-            then = now;
         }
 
         std::chrono::time_point<std::chrono::system_clock> before = std::chrono::system_clock::now();

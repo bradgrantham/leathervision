@@ -20,12 +20,12 @@ all: emulator emulator_terminal emulator_sdl
 # hex2bin hexinfo
 
 OBJECTS_GLFW = emulator.o z80emu.o readhex.o coleco_platform_glfw.o gl_utility.o
-OBJECTS_SDL = emulator.o z80emu.o readhex.o coleco_platform_sdl.o
-OBJECTS_TERMINAL = emulator.o z80emu.o readhex.o coleco_platform_template.o
+OBJECTS_SDL = emulator.o z80emu.o coleco_platform_sdl.o
+OBJECTS_TERMINAL = emulator.o z80emu.o coleco_platform_template.o
 
 
 emulator: $(OBJECTS_GLFW)
-	$(CXX) $(LDFLAGS_GLFW) $^   -o $@ $(LDLIBS_GLFW)
+	$(CXX) -DPROVIDE_DEBUGGER $(LDFLAGS_GLFW) $^   -o $@ $(LDLIBS_GLFW)
 
 emulator_terminal: $(OBJECTS_TERMINAL)
 	$(CXX) $(LDFLAGS) $^   -o $@ $(LDLIBS)
@@ -60,3 +60,5 @@ hex2bin.o: hex2bin.c readhex.h
 tables.h: maketables.c
 	$(CC) -Wall $< -o maketables
 	./maketables > $@
+
+coleco.js: em++ -Wall -I/opt/local/include -Ibg80d -DUSE_BG80D=1 -std=c++17 -g -O2 -fsigned-char --preload-file OurColeco@/ --preload-file others@/ emulator.cpp z80emu.cpp coleco_platform_sdl.cpp -s USE_SDL=2 -s ASSERTIONS=1 -o coleco.js
