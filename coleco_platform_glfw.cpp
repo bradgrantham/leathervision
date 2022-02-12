@@ -559,7 +559,8 @@ void iterate_ui()
 
 constexpr int SCREEN_SCALE = 3;
 
-std::chrono::time_point<std::chrono::system_clock> then;
+std::chrono::time_point<std::chrono::system_clock> previous_draw_time;
+std::chrono::time_point<std::chrono::system_clock> previous_event_time;
 
 void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 {
@@ -613,7 +614,7 @@ void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 	printf("couldn't connect to colecovision controller HAT.\n");
     }
 #endif
-     then = std::chrono::system_clock::now();
+     previous_event_time = previous_draw_time = std::chrono::system_clock::now();
 }
 
 void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_status_result, [[maybe_unused]] float megahertz)
@@ -627,19 +628,24 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
 
     vdp_status_result = TMS9918A::CreateImageAndReturnFlags(vdp_registers, vdp_ram, pixel_setter);
 
-    iterate_ui();
-
     std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
-    std::chrono::duration<float> elapsed = now - then;
-    if(elapsed.count() > .01) {
+    std::chrono::duration<float> elapsed;
+    
+    elapsed = now - previous_event_time;
+    if(elapsed.count() > .05) {
+        iterate_ui();
+        previous_event_time = now;
+    }
+
+    elapsed = now - previous_draw_time;
+    if(elapsed.count() > .05) {
         CheckOpenGL(__FILE__, __LINE__);
         redraw(my_window);
         CheckOpenGL(__FILE__, __LINE__);
         glfwSwapBuffers(my_window);
         CheckOpenGL(__FILE__, __LINE__);
-        then = now;
+        previous_draw_time = now;
     }
-
 }
 
 void MainLoopAndShutdown(MainLoopBodyFunc body)

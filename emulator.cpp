@@ -34,9 +34,8 @@ bool enter_debugger = false;
 typedef long long clk_t;
 
 constexpr clk_t machine_clock_rate = 3579545;
-constexpr uint32_t slice_frequency = 60;
-constexpr uint32_t clocks_per_slice = machine_clock_rate / slice_frequency;
-constexpr clk_t micros_per_slice = 1000000 / slice_frequency;
+constexpr uint32_t slice_frequency_times_1000 = 59940;
+constexpr uint32_t clocks_per_retrace = machine_clock_rate * 1000 / slice_frequency_times_1000;
 
 constexpr unsigned int DEBUG_NONE = 0x00;
 constexpr unsigned int DEBUG_ROM = 0x01;
@@ -1701,6 +1700,7 @@ void SaveVDPState(const TMS9918AEmulator *vdp, int which)
 
 int main(int argc, char **argv)
 {
+    using namespace std::chrono_literals;
 #ifdef PROVIDE_DEBUGGER
     bool do_debugger = false;
     char *debugger_argument = NULL;
@@ -1842,13 +1842,20 @@ int main(int argc, char **argv)
         {
             std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
             auto micros_since_start = std::chrono::duration_cast<std::chrono::microseconds>(now - emulation_start_time);
-            clk_t clock_now = std::max(clk + 10000, machine_clock_rate * micros_since_start.count() / 1000000);
-            if(false) printf("was at %llu, need to be at %llu, need %llu clocks (%.2f millis)\n", clk, clock_now, clock_now - clk, (clock_now - clk) * 1000.0f / machine_clock_rate);
+            clk_t clock_now = machine_clock_rate * micros_since_start.count() / 1000000;
+            if(clock_now < clk) {
+                /* if we get ahead somehow, sleep a little to fall back */
+                if(false)printf("sleep\n");
+                std::this_thread::sleep_for(2ms);
+                return quit_requested;
+            }
+            clk_t target_clock = std::max(clk + 10000, clock_now);
+            if(false) printf("was at %llu, need to be at %llu, need %llu (%.2f ms), will run %llu (%.2f ms)\n", clk, clock_now, clock_now - clk, (clock_now - clk) * 1000.0f / machine_clock_rate, target_clock - clk, (target_clock - clk) * 1000.0f / machine_clock_rate);
 
             // XXX THIS HAS TO REMAIN 1 UNTIL I CAN ISSUE NonMaskableInterrupt PER-INSTRUCTION
             constexpr int iterated_clock_quantum = 1;
 
-            while(clk < clock_now) {
+            while(clk < target_clock) {
                 clk_t clocks_this_step = Z80Emulate(&z80state, iterated_clock_quantum);
 #ifdef PROVIDE_DEBUGGER
                 if(debugger) {
@@ -1860,8 +1867,8 @@ int main(int argc, char **argv)
 #endif
                 clk += clocks_this_step;
 
-                uint64_t retrace_before = previous_field_start_clock / clocks_per_slice;
-                uint64_t retrace_after = clk / clocks_per_slice;
+                uint64_t retrace_before = previous_field_start_clock / clocks_per_retrace;
+                uint64_t retrace_after = clk / clocks_per_retrace;
                 if(retrace_before != retrace_after) {
                     // printf("VDP frame interrupt %llu, %llu clocks\n", retrace_after, clk - previous_field_start_clock);
                     {

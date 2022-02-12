@@ -113,6 +113,9 @@ SDL_Surface *surface;
 
 constexpr int SCREEN_SCALE = 3;
 
+std::chrono::time_point<std::chrono::system_clock> previous_draw_time;
+std::chrono::time_point<std::chrono::system_clock> previous_event_time;
+
 void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 {
 #if defined(EMSCRIPTEN)
@@ -131,7 +134,7 @@ void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 
 #endif /* EMSCRIPTEN */
 
-    window = SDL_CreateWindow("ColecoVision", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, TMS9918A::SCREEN_X * SCREEN_SCALE, TMS9918A::SCREEN_Y * SCREEN_SCALE, 0);
+    window = SDL_CreateWindow("ColecoVision", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, TMS9918A::SCREEN_X * SCREEN_SCALE, TMS9918A::SCREEN_Y * SCREEN_SCALE, SDL_WINDOW_RESIZABLE);
     if(!window) {
         printf("could not open window\n");
         exit(1);
@@ -174,6 +177,7 @@ void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 
     SDL_PumpEvents();
 
+    previous_event_time = previous_draw_time = std::chrono::system_clock::now();
 }
 
 bool shift_pressed = false;
@@ -354,17 +358,28 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
 
     if (SDL_MUSTLOCK(surface)) SDL_UnlockSurface(surface);
 
-    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
-    if(!texture) {
-        printf("could not create texture\n");
-        exit(1);
+    std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
+    std::chrono::duration<float> elapsed;
+    
+    elapsed = now - previous_event_time;
+    if(elapsed.count() > .05) {
+        HandleEvents();
+        previous_event_time = now;
     }
-    SDL_RenderClear(renderer);
-    SDL_RenderCopy(renderer, texture, NULL, NULL);
-    SDL_RenderPresent(renderer);
-    SDL_DestroyTexture(texture);
 
-    HandleEvents();
+    elapsed = now - previous_draw_time;
+    if(elapsed.count() > .05) {
+        SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+        if(!texture) {
+            printf("could not create texture\n");
+            exit(1);
+        }
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, texture, NULL, NULL);
+        SDL_RenderPresent(renderer);
+        SDL_DestroyTexture(texture);
+        previous_draw_time = now;
+    }
 }
 
 #if defined(EMSCRIPTEN)
