@@ -46,6 +46,7 @@ constexpr unsigned int DEBUG_VDP_OPERATIONS = 0x10;
 unsigned int debug = DEBUG_NONE;
 bool abort_on_exception = false;
 bool do_save_images_on_vdp_write = false;
+int dump_some_audio = 0;
 constexpr bool break_on_unknown_address = true;
 
 Z80_STATE z80state;
@@ -255,11 +256,11 @@ struct SN76489A
 
     uint8_t get_level()
     {
-        uint8_t v =
-            scale_by_attenuation_flags(tone_attenuation[0], tone_bit[0] ? 0 : 64) + 
-            + scale_by_attenuation_flags(tone_attenuation[1], tone_bit[1] ? 0 : 64)
+        uint8_t v = 128 + 
+            scale_by_attenuation_flags(tone_attenuation[0], tone_bit[0] ? 0 : 64) 
+            - scale_by_attenuation_flags(tone_attenuation[1], tone_bit[1] ? 0 : 64)
             + scale_by_attenuation_flags(tone_attenuation[2], tone_bit[2] ? 0 : 64)
-            + scale_by_attenuation_flags(noise_attenuation, (noise_register & 0x1) ? 0 : 64);
+            - scale_by_attenuation_flags(noise_attenuation, (noise_register & 0x1) ? 0 : 64);
             ;
 
         return v;
@@ -275,7 +276,11 @@ struct SN76489A
             if(next_audio_sample > current_audio_sample) {
                 advance_to_clock(c);
 
-                audio_buffer[audio_buffer_next_sample++] = get_level();
+                audio_buffer[audio_buffer_next_sample] = get_level();
+                if(dump_some_audio-- > 0) {
+                    printf("audio: %d\n", audio_buffer[audio_buffer_next_sample]);
+                }
+                audio_buffer_next_sample++;
 
                 if(audio_buffer_next_sample == audio_buffer_size) {
                     audio_flush(audio_buffer.data(), audio_buffer_size);
@@ -1921,6 +1926,8 @@ int main(int argc, char **argv)
                 for(auto b = boards.begin(); b != boards.end(); b++) {
                     (*b)->reset();
                 }
+            } else if(e.type == PlatformInterface::DUMP_SOME_AUDIO) {
+                dump_some_audio = 100;
             } else if(e.type == PlatformInterface::SAVE_VDP_STATE) {
                 save_vdp = true;
             } else if(e.type == PlatformInterface::DEBUG_VDP_WRITES) {

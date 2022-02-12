@@ -88,17 +88,20 @@ uint8_t GetKeypadState(ControllerIndex controller)
 }
 
 SDL_AudioDeviceID audio_device;
-bool audio_is_paused = true;
+bool audio_needs_start = true;
 SDL_AudioFormat actual_audio_format;
 
 void EnqueueAudioSamples(uint8_t *buf, size_t sz)
 {
-    if(audio_is_paused) {
-        audio_is_paused = false;
+    if(audio_needs_start) {
+        audio_needs_start = false;
         SDL_PauseAudioDevice(audio_device, 0);
-        /* preload a little data to avoid skips? */
-        std::array<uint8_t, 1024> buf{0};
-        SDL_QueueAudio(audio_device, buf.data(), buf.size());
+        /* give a little data to avoid gaps and to avoid a pop */
+        std::array<uint8_t, 1024> lead_in;
+        for(int i = 0; i < lead_in.size(); i++) {
+            lead_in[i] = 128 + (buf[0] - 128) * i / lead_in.size();
+        }
+        SDL_QueueAudio(audio_device, lead_in.data(), lead_in.size());
     }
 
     if(actual_audio_format == AUDIO_U8) {
@@ -192,8 +195,8 @@ static void HandleEvents(void)
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
             case SDL_WINDOWEVENT:
+                printf("window event %d\n", event.window.event);
                 switch(event.window.event) {
-
                 }
                 break;
             case SDL_QUIT:

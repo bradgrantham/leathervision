@@ -337,6 +337,9 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
         }
     } else if(action == GLFW_RELEASE) {
         switch(key) {
+            case GLFW_KEY_Z:
+                event_queue.push_back({DUMP_SOME_AUDIO, 0});
+                break;
             case GLFW_KEY_V:
                 event_queue.push_back({SAVE_VDP_STATE, 0});
                 break;
