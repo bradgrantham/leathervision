@@ -1,0 +1,38 @@
+while read tag filename
+do
+    sed "s/TITLE_NAME_HERE/$filename/" < template.html > specialized/$tag.html
+    echo "<a href=\"$tag.html\">$filename</a><br>"
+done << EOF
+defender Defender (1983) (Atarisoft).col
+donkey_kong Donkey Kong (1982) (Coleco).col
+donkey_kong_jr Donkey Kong Jr. (1983) (Coleco).col
+frogger Frogger (1983) (Parker Bros).col
+jungle_hunt Jungle Hunt (1983) (Atarisoft).col
+looping Looping (1983) (Venture Line).col
+miner_2049er Miner 2049er (1983) (Micro Fun).col
+mr_do Mr. Do! (1983) (Universal).col
+pitfall_II Pitfall II - Lost Caverns (1983-84) (Activision).col
+popeye Popeye (1983) (Parker Bros).col
+qbert Q-bert (1983) (Parker Bros).col
+roc_n_rope Roc 'N Rope (1983-84) (Konami).col
+slither Slither (1983) (Century II).col
+smurf Smurf - Rescue in Gargamel's Castle (1982).col
+super_cross_force Super Cross Force (1983) (Spectravideo).col
+zaxxon Zaxxon (1982) (Sega).col
+beamrider Beamrider (1983 Activision).rom
+burgertime_prototype BurgerTime (1983 Mattel) [Prototype].rom
+burgertime BurgerTime (1984 Coleco).rom
+choplifter Choplifter! (1984 Coleco).rom
+dig_dug_prototype  Dig Dug (1983 Atarisoft) [Prototype].rom
+moon_patrol_prototype Moon Patrol (1984 Atarisoft) [Prototype A1].rom
+pitfall Pitfall! (1983 Activision).rom
+spy_hunter_prototype Spy Hunter (1984 Coleco) [Prototype].rom
+spy_hunter Spy Hunter (1984 Coleco).rom
+cabbage_patch_kids cabbage-patch-kids-adventures-in-the-park-1984.rom
+carnival carnival-1982.rom
+flappee-byrd flapee-byrd-2014.rom
+gorf gorf-1983.rom
+star_wars star-wars-the-arcade-game-1984.rom
+turbo turbo-1982.rom
+venture venture-1982.rom
+EOF

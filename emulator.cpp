@@ -1846,10 +1846,10 @@ int main(int argc, char **argv)
             if(clock_now < clk) {
                 /* if we get ahead somehow, sleep a little to fall back */
                 if(false)printf("sleep\n");
-                std::this_thread::sleep_for(2ms);
+                std::this_thread::sleep_for(2ms); // 1ms);
                 return quit_requested;
             }
-            clk_t target_clock = std::max(clk + 10000, clock_now);
+            clk_t target_clock = std::max(clk + 10000 /* machine_clock_rate / 1000 */ , clock_now);
             if(false) printf("was at %llu, need to be at %llu, need %llu (%.2f ms), will run %llu (%.2f ms)\n", clk, clock_now, clock_now - clk, (clock_now - clk) * 1000.0f / machine_clock_rate, target_clock - clk, (target_clock - clk) * 1000.0f / machine_clock_rate);
 
             // XXX THIS HAS TO REMAIN 1 UNTIL I CAN ISSUE NonMaskableInterrupt PER-INSTRUCTION
