@@ -12,6 +12,10 @@
 #define GLFW_INCLUDE_GLCOREARB
 #include <GLFW/glfw3.h>
 
+#ifdef __linux__
+#include <linux/i2c-dev.h>
+#endif
+
 #include "gl_utility.h"
 #include "tms9918.h"
 
