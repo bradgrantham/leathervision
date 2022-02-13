@@ -1,5 +1,6 @@
 #include <tuple>
 #include <vector>
+#include <functional>
 
 namespace PlatformInterface
 {
