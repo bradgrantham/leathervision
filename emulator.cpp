@@ -4,29 +4,41 @@
 #include <cassert>
 #include <cerrno>
 #include <string>
+#include <chrono>
 #include <map>
 #include <deque>
 #include <array>
 #include <chrono>
 #include <thread>
+#include <memory>
 #include <unistd.h>
-#include <signal.h>
 #include <sys/time.h>
-#include <arpa/inet.h>
 #include <sys/types.h>
+
+#ifdef PROVIDE_DEBUGGER
+#include <signal.h>
 #include <readline/readline.h>
 #include <readline/history.h>
-#include <sys/ioctl.h>
-
-#ifdef __linux__
-#include <linux/i2c-dev.h>
-#endif
+#include "readhex.h"
+#endif /* PROVIDE_DEBUGGER */
 
 #include "emulator.h"
 #include "z80emu.h"
-#include "readhex.h"
 #include "coleco_platform.h"
 #include "tms9918.h"
+
+#if defined(ROSA)
+#include "rocinante.h"
+#endif
+
+std::vector<board_base*> boards;
+
+Z80_STATE z80state;
+bool Z80_INTERRUPT_FETCH = false;
+unsigned short Z80_INTERRUPT_FETCH_DATA;
+
+namespace ColecoVisionEmulator
+{
 
 bool quit_requested = false;
 bool enter_debugger = false; 
@@ -48,10 +60,6 @@ bool abort_on_exception = false;
 bool do_save_images_on_vdp_write = false;
 int dump_some_audio = 0;
 constexpr bool break_on_unknown_address = true;
-
-Z80_STATE z80state;
-bool Z80_INTERRUPT_FETCH = false;
-unsigned short Z80_INTERRUPT_FETCH_DATA;
 
 void print_state(Z80_STATE* state)
 {
@@ -1629,8 +1637,6 @@ struct Debugger
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
-std::vector<board_base*> boards;
-
 void usage(char *progname)
 {
     printf("\n");
@@ -1702,6 +1708,36 @@ void SaveVDPState(const TMS9918AEmulator *vdp, int which)
     WriteVDPStateToFile(getenv("VDP_OUT_BASE"), which, vdp->registers.data(), vdp->memory.data(), vdp_file);
     fclose(vdp_file);
 }
+
+}; // namespace ColecoVisionEmulator
+
+using namespace ColecoVisionEmulator;
+
+#if defined(ROSA)
+
+extern "C" {
+void HAL_Delay(uint32_t millis);
+int coleco_main(int argc, char **argv);
+void main_iterate(void);
+uint32_t HAL_GetTick();
+};
+
+#define main coleco_main
+
+#endif
+
+static void sleep_for(int32_t millis)
+{
+    if(millis < 0) {
+        return;
+    }
+#ifdef ROSA
+    HAL_Delay(millis);
+#else
+    std::this_thread::sleep_for(std::chrono::milliseconds(millis));
+#endif
+}
+
 
 int main(int argc, char **argv)
 {
@@ -1834,9 +1870,14 @@ int main(int argc, char **argv)
     bool nmi_was_issued = false;
     clk_t previous_field_start_clock = clk;
     std::chrono::time_point<std::chrono::system_clock> emulation_start_time = std::chrono::system_clock::now();
+    uint32_t prevTick;
+#if defined(ROSA)
+    prevTick = HAL_GetTick();
+#endif
 
-    PlatformInterface::MainLoopBodyFunc main_loop_body = [&clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &previous_field_start_clock, &emulation_start_time]() {
+    PlatformInterface::MainLoopBodyFunc main_loop_body = [&clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &previous_field_start_clock, &emulation_start_time, &prevTick]() {
         (void)debugger; // If !PROVIDE_DEBUGGER then debugger is not referenced.
+        (void)prevTick; // If !ROSA then prevTick is not referenced. // XXX move iterate call to platform main loop
 
 #ifdef PROVIDE_DEBUGGER
         if(debugger && (enter_debugger || debugger->should_debug(boards, &z80state))) {
@@ -1850,15 +1891,18 @@ int main(int argc, char **argv)
             clk_t clock_now = machine_clock_rate * micros_since_start.count() / 1000000;
             if(clock_now < clk) {
                 /* if we get ahead somehow, sleep a little to fall back */
-                if(false)printf("sleep\n");
-                std::this_thread::sleep_for(2ms); // 1ms);
+                sleep_for(2); // 1ms);
                 return quit_requested;
             }
             clk_t target_clock = std::max(clk + 10000 /* machine_clock_rate / 1000 */ , clock_now);
             if(false) printf("was at %llu, need to be at %llu, need %llu (%.2f ms), will run %llu (%.2f ms)\n", clk, clock_now, clock_now - clk, (clock_now - clk) * 1000.0f / machine_clock_rate, target_clock - clk, (target_clock - clk) * 1000.0f / machine_clock_rate);
 
             // XXX THIS HAS TO REMAIN 1 UNTIL I CAN ISSUE NonMaskableInterrupt PER-INSTRUCTION
-            constexpr int iterated_clock_quantum = 1;
+            constexpr int iterated_clock_quantum = 1; // 1;
+
+#if defined(ROSA)
+            RoDebugOverlayPrintf("%ld\n", (int)(target_clock - clk));
+#endif /* ROSA */
 
             while(clk < target_clock) {
                 clk_t clocks_this_step = Z80Emulate(&z80state, iterated_clock_quantum);
@@ -1875,14 +1919,11 @@ int main(int argc, char **argv)
                 uint64_t retrace_before = previous_field_start_clock / clocks_per_retrace;
                 uint64_t retrace_after = clk / clocks_per_retrace;
                 if(retrace_before != retrace_after) {
-                    // printf("VDP frame interrupt %llu, %llu clocks\n", retrace_after, clk - previous_field_start_clock);
-                    {
-                        colecohw->vdp.perform_scanout(platform_scanout);
-                        if(save_vdp) {
-                            static int which = 0;
-                            SaveVDPState(&colecohw->vdp, which++);
-                            save_vdp = false;
-                        }
+                    colecohw->vdp.perform_scanout(platform_scanout);
+                    if(save_vdp) {
+                        static int which = 0;
+                        SaveVDPState(&colecohw->vdp, which++);
+                        save_vdp = false;
                     }
 
                     colecohw->vdp.vsync();
@@ -1898,6 +1939,15 @@ int main(int argc, char **argv)
                     nmi_was_issued = false;
                 }
             }
+
+#if defined(ROSA)
+            uint32_t nowTick = HAL_GetTick();
+#warning Setting this to + 16 made USB keyboard stop working.  
+            if(nowTick >= prevTick) {
+                main_iterate();
+                prevTick = nowTick;
+            }
+#endif
         }
 
         for(auto b = boards.begin(); b != boards.end(); b++) {
