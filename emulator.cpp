@@ -15,8 +15,6 @@
 #include <sys/time.h>
 #include <sys/types.h>
 
-#define PROVIDE_DEBUGGER
-
 #ifdef PROVIDE_DEBUGGER
 #include <signal.h>
 #include <readline/readline.h>
