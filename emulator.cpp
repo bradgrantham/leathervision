@@ -37,22 +37,81 @@
 // move sleep_for into platform
 // move debug print into platform
 
+namespace ColecoVisionEmulator
+{
+
+struct RAMboard : board_base
+{
+    int base;
+    int length;
+    std::unique_ptr<unsigned char> bytes;
+    RAMboard(int base_, int length_) :
+        base(base_),
+        length(length_),
+        bytes(new unsigned char[length])
+    {
+    }
+    bool read(int addr, unsigned char &data);
+    virtual bool memory_read(int addr, unsigned char &data)
+    {
+        return read(addr, data);
+    }
+    bool write(int addr, unsigned char data);
+    virtual bool memory_write(int addr, unsigned char data)
+    {
+        return write(addr, data);
+    }
+};
+
+struct ROMboard : board_base
+{
+    int base;
+    int length;
+    std::unique_ptr<unsigned char> bytes;
+    ROMboard(int base_, int length_, unsigned char bytes_[]) : 
+        base(base_),
+        length(length_),
+        bytes(new unsigned char[length])
+    {
+        memcpy(bytes.get(), bytes_, length);
+    }
+    bool read(int addr, unsigned char &data);
+    virtual bool memory_read(int addr, unsigned char &data)
+    {
+        return read(addr, data);
+    }
+    bool write(int addr, unsigned char data);
+    virtual bool memory_write(int addr, unsigned char data)
+    {
+        return write(addr, data);
+    }
+};
+
+}; // namespace ColecoVisionEmulator
+
+ColecoVisionEmulator::RAMboard *RAM;
+ColecoVisionEmulator::ROMboard *CartROM;
+ColecoVisionEmulator::ROMboard *BIOSROM;
 std::vector<board_base*> boards;
 
 unsigned char readByte(void* arg, unsigned short addr)
 {
-    /* last one wins. */
     uint8_t b = 0x00;
-    for(auto it = boards.begin(); it != boards.end(); it++)
-        (*it)->memory_read(addr, b);
+
+    if(CartROM->read(addr & 0xFFFF, b)) {
+        return b;
+    }
+    if(BIOSROM->read(addr & 0xFFFF, b)) {
+        return b;
+    }
+    RAM->read(addr & 0xFFFF, b);
+
     return b;
 }
 
 void writeByte(void* arg, unsigned short addr, unsigned char value)
 {
-    /* they all win. */
-    for(auto it = boards.begin(); it != boards.end(); it++)
-        (*it)->memory_write(addr, value);
+    RAM->write(addr & 0xFFFF, value);
 }
 
 unsigned char inPort(void* arg, unsigned char port)
@@ -557,11 +616,6 @@ struct ColecoHW : board_base
 
     virtual bool io_write(int addr, unsigned char data)
     {
-        // if(addr == ColecoHW::PROPELLER_PORT) {
-            // write_to_propeller(data);
-            // return true;
-        // }
-
         if(false) {
             if(addr == ColecoHW::VDP_CMD_PORT) {
                 vdp.write(1, data);
@@ -708,66 +762,43 @@ struct ColecoHW : board_base
     }
 };
 
-struct RAMboard : board_base
+bool RAMboard::read(int addr, unsigned char &data)
 {
-    int base;
-    int length;
-    std::unique_ptr<unsigned char> bytes;
-    RAMboard(int base_, int length_) :
-        base(base_),
-        length(length_),
-        bytes(new unsigned char[length])
-    {
+    if(addr >= base && addr < base + length) {
+        data = bytes.get()[addr - base];
+        if(debug & DEBUG_RAM) printf("read 0x%04X -> 0x%02X from RAM\n", addr, data);
+        return true;
     }
-    virtual bool memory_read(int addr, unsigned char &data)
-    {
-        if(addr >= base && addr < base + length) {
-            data = bytes.get()[addr - base];
-            if(debug & DEBUG_RAM) printf("read 0x%04X -> 0x%02X from RAM\n", addr, data);
-            return true;
-        }
-        return false;
-    }
-    virtual bool memory_write(int addr, unsigned char data)
-    {
-        if(addr >= base && addr < base + length) {
-            bytes.get()[addr - base] = data;
-            if(debug & DEBUG_RAM) printf("wrote 0x%02X to RAM 0x%04X\n", data, addr);
-            return true;
-        }
-        return false;
-    }
-};
+    return false;
+}
 
-struct ROMboard : board_base
+bool RAMboard::write(int addr, unsigned char data)
 {
-    int base;
-    int length;
-    std::unique_ptr<unsigned char> bytes;
-    ROMboard(int base_, int length_, unsigned char bytes_[]) : 
-        base(base_),
-        length(length_),
-        bytes(new unsigned char[length])
-    {
-        memcpy(bytes.get(), bytes_, length);
+    if(addr >= base && addr < base + length) {
+        bytes.get()[addr - base] = data;
+        if(debug & DEBUG_RAM) printf("wrote 0x%02X to RAM 0x%04X\n", data, addr);
+        return true;
     }
-    virtual bool memory_read(int addr, unsigned char &data)
-    {
-        if(addr >= base && addr < base + length) {
-            data = bytes.get()[addr - base];
-            if(debug & DEBUG_ROM) printf("read 0x%04X -> 0x%02X from ROM\n", addr, data);
-            return true;
-        }
-        return false;
+    return false;
+}
+
+bool ROMboard::read(int addr, unsigned char &data)
+{
+    if(addr >= base && addr < base + length) {
+        data = bytes.get()[addr - base];
+        if(debug & DEBUG_ROM) printf("read 0x%04X -> 0x%02X from ROM\n", addr, data);
+        return true;
     }
-    virtual bool memory_write(int addr, unsigned char data)
-    {
-        if(addr >= base && addr < base + length) {
-            if(debug & DEBUG_ROM) printf("attempted write 0x%02X to ROM 0x%04X ignored\n", data, addr);
-        }
-        return false;
+    return false;
+}
+
+bool ROMboard::write(int addr, unsigned char data)
+{
+    if(addr >= base && addr < base + length) {
+        if(debug & DEBUG_ROM) printf("attempted write 0x%02X to ROM 0x%04X ignored\n", data, addr);
     }
-};
+    return false;
+}
 
 
 #ifdef PROVIDE_DEBUGGER
@@ -1679,14 +1710,14 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80 &z80)
     state_may_have_changed = true;
 }
 
-#else
+#else /* ! PROVIDE_DEBUGGER */
 
 struct Debugger
 {
     Debugger(ColecoHW *colecohw, clk_t& clk) {}
 };
 
-#endif
+#endif /* PROVIDE_DEBUGGER */
 
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
@@ -1869,6 +1900,7 @@ int main(int argc, char **argv)
     }
     fclose(fp);
     ROMboard *bios_rom = new ROMboard(0, bios_length, rom_temp);
+    BIOSROM = bios_rom;
 
     audio_flush_func audio_flush = [](uint8_t *buf, size_t sz){ PlatformInterface::EnqueueAudioSamples(buf, sz); };
 
@@ -1890,6 +1922,7 @@ int main(int argc, char **argv)
     }
     fclose(fp);
     ROMboard *cart_rom = new ROMboard(0x8000, cart_length, rom_temp);
+    CartROM = cart_rom;
 
     clk_t clk = 0;
     ColecoHW* colecohw = new ColecoHW(audioSampleRate, preferredAudioBufferSampleCount);
@@ -1902,10 +1935,12 @@ int main(int argc, char **argv)
     }
 #endif
 
+    RAM = new RAMboard(0x6000, 0x2000);
+
     boards.push_back(colecohw);
     boards.push_back(bios_rom);
     boards.push_back(cart_rom);
-    boards.push_back(new RAMboard(0x6000, 0x2000));
+    boards.push_back(RAM);
 
     for(auto b = boards.begin(); b != boards.end(); b++) {
         (*b)->init();
