@@ -88,9 +88,9 @@ void ResetZ80(Z80& z80)
     ::memset(&z80.reg, 0, sizeof(z80.reg));
 }
 
-bool IsZ80InNMI(Z80& z80)
+bool Z80IsInNMI(Z80& z80)
 {
-    return z80.reg.interrupt & 0b10000000;
+    return z80.reg.IFF & 0b01000000;
 }
 
 namespace ColecoVisionEmulator
@@ -418,7 +418,7 @@ struct TMS9918AEmulator
     void write(int cmd, unsigned char data)
     {
         using namespace TMS9918A;
-        if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, IsZ80InNMI(z80) ? 1 : 0);
+        if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, Z80IsInNMI(z80) ? 1 : 0);
         if(do_save_images_on_vdp_write) { /* debug */
 
             uint8_t framebuffer[SCREEN_X * SCREEN_Y * 3];
@@ -442,11 +442,11 @@ struct TMS9918AEmulator
                 if(debug & DEBUG_VDP_OPERATIONS) printf("VDP command write, first byte 0x%02X\n", data);
                 cmd_data = data;
                 cmd_phase = CMD_PHASE_SECOND;
-                cmd_started_in_nmi = IsZ80InNMI(z80);
+                cmd_started_in_nmi = Z80IsInNMI(z80);
 
             } else {
 
-                if(IsZ80InNMI(z80) != cmd_started_in_nmi) {
+                if(Z80IsInNMI(z80) != cmd_started_in_nmi) {
                     if(cmd_started_in_nmi) {
                         printf("VDP cmd was started in NMI but finished outside NMI; likely corruption\n");
                     } else {
@@ -499,7 +499,7 @@ struct TMS9918AEmulator
         using namespace TMS9918A;
         if(cmd) {
             if(cmd_phase == CMD_PHASE_SECOND) {
-                if(IsZ80InNMI(z80)) {
+                if(Z80IsInNMI(z80)) {
                     printf("cmd_phase was reset in ISR\n");
                 } else {
                     printf("cmd_phase was reset outside ISR\n");
