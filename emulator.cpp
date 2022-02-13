@@ -23,7 +23,7 @@
 #endif /* PROVIDE_DEBUGGER */
 
 #include "emulator.h"
-#include "z80emu.h"
+#include "z80.hpp"
 #include "coleco_platform.h"
 #include "tms9918.h"
 
@@ -31,11 +31,64 @@
 #include "rocinante.h"
 #endif
 
+// make ROM and RAM struct, create it and call it directly
+// why does NMI take an address?
+// move sleep_for into platform
+// move debug print into platform
+
 std::vector<board_base*> boards;
 
-Z80_STATE z80state;
-bool Z80_INTERRUPT_FETCH = false;
-unsigned short Z80_INTERRUPT_FETCH_DATA;
+unsigned char readByte(void* arg, unsigned short addr)
+{
+    /* last one wins. */
+    uint8_t b = 0x00;
+    for(auto it = boards.begin(); it != boards.end(); it++)
+        (*it)->memory_read(addr, b);
+    return b;
+}
+
+void writeByte(void* arg, unsigned short addr, unsigned char value)
+{
+    /* they all win. */
+    for(auto it = boards.begin(); it != boards.end(); it++)
+        (*it)->memory_write(addr, value);
+}
+
+unsigned char inPort(void* arg, unsigned char port)
+{
+    /* last one wins. */
+    uint8_t b = 0x00;
+    bool accepted = false;
+    for(auto it = boards.begin(); it != boards.end(); it++) {
+        accepted |= (*it)->io_read(port & 0xff, b);
+    }
+    if(!accepted) {
+        printf("IN %d (0x%02X) was not handled!\n", port, port);
+    }
+    return b;
+}
+
+void outPort(void* arg, unsigned char port, unsigned char value)
+{
+    /* they all win. */
+    bool accepted = false;
+    for(auto it = boards.begin(); it != boards.end(); it++)
+        accepted |= (*it)->io_write(port & 0xff, value);
+    if(!accepted)
+        printf("OUT %d (0x%02X), 0x%02X was not handled!\n", port, port, value);
+}
+
+Z80 z80(readByte, writeByte, inPort, outPort, nullptr);
+
+void ResetZ80(Z80& z80)
+{
+    ::memset(&z80.reg, 0, sizeof(z80.reg));
+}
+
+bool IsZ80InNMI(Z80& z80)
+{
+    return z80.reg.interrupt & 0b10000000;
+}
 
 namespace ColecoVisionEmulator
 {
@@ -61,18 +114,22 @@ bool do_save_images_on_vdp_write = false;
 int dump_some_audio = 0;
 constexpr bool break_on_unknown_address = true;
 
-void print_state(Z80_STATE* state)
+void print_state(const Z80 &z80)
 {
-    printf("BC :%04X  DE :%04X  HL :%04X  AF :%04X  IX : %04X  IY :%04X  SP :%04X\n",
-        state->registers.word[Z80_BC], state->registers.word[Z80_DE],
-        state->registers.word[Z80_HL], state->registers.word[Z80_AF],
-        state->registers.word[Z80_IX], state->registers.word[Z80_IY],
-        state->registers.word[Z80_SP]);
-    printf("BC':%04X  DE':%04X  HL':%04X  AF':%04X\n",
-        state->alternates[Z80_BC], state->alternates[Z80_DE],
-        state->alternates[Z80_HL], state->alternates[Z80_AF]);
+    printf("BC :%02X%02X  DE :%02X%02X  HL :%02X%02X  AF :%02X%02X  IX : %04X  IY :%04X  SP :%04X\n",
+        z80.reg.pair.B, z80.reg.pair.C, 
+        z80.reg.pair.D, z80.reg.pair.E, 
+        z80.reg.pair.H, z80.reg.pair.L, 
+        z80.reg.pair.A, z80.reg.pair.F, 
+        z80.reg.IX, z80.reg.IY,
+        z80.reg.SP);
+    printf("BC':%02X%02X  DE':%02X%02X  HL':%02X%02X  AF':%02X%02X\n",
+        z80.reg.back.B, z80.reg.back.C, 
+        z80.reg.back.D, z80.reg.back.E, 
+        z80.reg.back.H, z80.reg.back.L, 
+        z80.reg.back.A, z80.reg.back.F);
     printf("PC :%04X\n",
-        state->pc);
+        z80.reg.PC);
 }
 
 typedef std::function<uint8_t (const uint8_t *registers, const uint8_t *memory)> tms9918_scanout_func;
@@ -358,7 +415,7 @@ struct TMS9918AEmulator
     void write(int cmd, unsigned char data)
     {
         using namespace TMS9918A;
-        if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, z80state.in_nmi);
+        if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, IsZ80InNMI(z80) ? 1 : 0);
         if(do_save_images_on_vdp_write) { /* debug */
 
             uint8_t framebuffer[SCREEN_X * SCREEN_Y * 3];
@@ -382,11 +439,11 @@ struct TMS9918AEmulator
                 if(debug & DEBUG_VDP_OPERATIONS) printf("VDP command write, first byte 0x%02X\n", data);
                 cmd_data = data;
                 cmd_phase = CMD_PHASE_SECOND;
-                cmd_started_in_nmi = z80state.in_nmi;
+                cmd_started_in_nmi = IsZ80InNMI(z80);
 
             } else {
 
-                if(z80state.in_nmi != cmd_started_in_nmi) {
+                if(IsZ80InNMI(z80) != cmd_started_in_nmi) {
                     if(cmd_started_in_nmi) {
                         printf("VDP cmd was started in NMI but finished outside NMI; likely corruption\n");
                     } else {
@@ -439,7 +496,7 @@ struct TMS9918AEmulator
         using namespace TMS9918A;
         if(cmd) {
             if(cmd_phase == CMD_PHASE_SECOND) {
-                if(z80state.in_nmi) {
+                if(IsZ80InNMI(z80)) {
                     printf("cmd_phase was reset in ISR\n");
                 } else {
                     printf("cmd_phase was reset outside ISR\n");
@@ -634,9 +691,6 @@ struct ColecoHW : board_base
     }
 
     virtual void init(void)
-    {
-    }
-    virtual void idle(void)
     {
     }
     virtual void pause(void) {};
@@ -1610,9 +1664,6 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80_STATE* state)
                 line[strlen(line) - 1] = '\0';
                 run = process_line(boards, state, line);
             }
-            for(auto b = boards.begin(); b != boards.end(); b++)  {
-                (*b)->idle();
-            }
 
         } while(!run);
     }
@@ -1857,13 +1908,10 @@ int main(int argc, char **argv)
         (*b)->init();
     }
 
-    memset(&z80state, 0, sizeof(z80state));
-    Z80Reset(&z80state);
-
 #ifdef PROVIDE_DEBUGGER
     if(debugger) {
         enter_debugger = true;
-        debugger->process_line(boards, &z80state, debugger_argument);
+        debugger->process_line(boards, &z80, debugger_argument);
     }
 #endif
 
@@ -1880,8 +1928,8 @@ int main(int argc, char **argv)
         (void)prevTick; // If !ROSA then prevTick is not referenced. // XXX move iterate call to platform main loop
 
 #ifdef PROVIDE_DEBUGGER
-        if(debugger && (enter_debugger || debugger->should_debug(boards, &z80state))) {
-            debugger->go(stdin, boards, &z80state);
+        if(debugger && (enter_debugger || debugger->should_debug(boards, &z80))) {
+            debugger->go(stdin, boards, &z80);
             enter_debugger = false;
         } else
 #endif
@@ -1905,11 +1953,11 @@ int main(int argc, char **argv)
 #endif /* ROSA */
 
             while(clk < target_clock) {
-                clk_t clocks_this_step = Z80Emulate(&z80state, iterated_clock_quantum);
+                clk_t clocks_this_step = z80.execute(iterated_clock_quantum);
 #ifdef PROVIDE_DEBUGGER
                 if(debugger) {
-                    if(enter_debugger || debugger->should_debug(boards, &z80state)) {
-                        debugger->go(stdin, boards, &z80state);
+                    if(enter_debugger || debugger->should_debug(boards, &z80)) {
+                        debugger->go(stdin, boards, &z80);
                         enter_debugger = false;
                     }
                 }
@@ -1932,7 +1980,7 @@ int main(int argc, char **argv)
 
                 if(colecohw->nmi_required()) {
                     if(!nmi_was_issued) {
-                        Z80NonMaskableInterrupt (&z80state);
+                        z80.generateNMI(0x66);
                         nmi_was_issued = true;
                     }
                 } else {
@@ -1950,21 +1998,6 @@ int main(int argc, char **argv)
 #endif
         }
 
-        for(auto b = boards.begin(); b != boards.end(); b++) {
-            int irq;
-            if((*b)->board_get_interrupt(irq)) {
-                // Pretend to be 8259 configured for Alice2:
-                Z80_INTERRUPT_FETCH = true;
-                Z80_INTERRUPT_FETCH_DATA = 0x3f00 + irq * 4;
-                clk += Z80Interrupt(&z80state, 0xCD);
-                break;
-            }
-        }
-
-        for(auto b = boards.begin(); b != boards.end(); b++) {
-            (*b)->idle();
-        }
-
         colecohw->fill_flush_audio(clk, audio_flush);
 
         while(PlatformInterface::EventIsWaiting()) {
@@ -1972,7 +2005,7 @@ int main(int argc, char **argv)
             if(e.type == PlatformInterface::QUIT) {
                 quit_requested = true;
             } else if(e.type == PlatformInterface::RESET) {
-                Z80Reset(&z80state);
+                ResetZ80(z80);
                 for(auto b = boards.begin(); b != boards.end(); b++) {
                     (*b)->reset();
                 }
