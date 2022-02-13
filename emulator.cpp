@@ -15,6 +15,8 @@
 #include <sys/time.h>
 #include <sys/types.h>
 
+#define PROVIDE_DEBUGGER
+
 #ifdef PROVIDE_DEBUGGER
 #include <signal.h>
 #include <readline/readline.h>
@@ -32,7 +34,8 @@
 #endif
 
 // make ROM and RAM struct, create it and call it directly
-// why does NMI take an address?
+// can debugger be factored out into its own module?
+// improve naming and scope of readByte etc
 // move sleep_for into platform
 // move debug print into platform
 
@@ -795,13 +798,13 @@ struct BreakPoint
     void disable() { enabled = false; }
 };
 
-void clear_breakpoints(std::vector<BreakPoint>& breakpoints, Z80_STATE* state)
+void clear_breakpoints(std::vector<BreakPoint>& breakpoints, Z80 &z80)
 {
     for(auto i = breakpoints.begin(); i != breakpoints.end(); i++) {
         BreakPoint& bp = (*i);
         switch(bp.type) {
             case BreakPoint::DATA:
-                Z80_READ_BYTE(bp.address, bp.old_value);
+                bp.old_value = readByte(nullptr, bp.address);
                 break;
             case BreakPoint::INSTRUCTION:
                 break;
@@ -809,21 +812,21 @@ void clear_breakpoints(std::vector<BreakPoint>& breakpoints, Z80_STATE* state)
     }
 }
 
-bool is_breakpoint_triggered(std::vector<BreakPoint>& breakpoints, Z80_STATE* state, int& which)
+bool is_breakpoint_triggered(std::vector<BreakPoint>& breakpoints, Z80 &z80, int& which)
 {
     for(auto i = breakpoints.begin(); i != breakpoints.end(); i++) {
         BreakPoint& bp = (*i);
         if(bp.enabled)
             switch(bp.type) {
                 case BreakPoint::INSTRUCTION:
-                    if(state->pc == bp.address) {
+                    if(z80.reg.PC == bp.address) {
                         which = i - breakpoints.begin();
                         return true;
                     }
                     break;
                 case BreakPoint::DATA:
                     unsigned char data;
-                    Z80_READ_BYTE(bp.address, data);
+                    data = readByte(nullptr, bp.address);
                     if(data != bp.old_value) {
                         which = i - breakpoints.begin();
                         return true;
@@ -904,10 +907,10 @@ struct Debugger
     {
         ctor();
     }
-    bool process_line(std::vector<board_base*>& boards, Z80_STATE* state, char *line);
-    bool process_command(std::vector<board_base*>& boards, Z80_STATE* state, char *command);
-    void go(FILE *fp, std::vector<board_base*>& boards, Z80_STATE* state);
-    bool should_debug(std::vector<board_base*>& boards, Z80_STATE* state);
+    bool process_line(std::vector<board_base*>& boards, Z80 &z80, char *line);
+    bool process_command(std::vector<board_base*>& boards, Z80 &z80, char *command);
+    void go(FILE *fp, std::vector<board_base*>& boards, Z80 &z80);
+    bool should_debug(std::vector<board_base*>& boards, Z80 &z80);
 };
 
 #include "bg80d.h"
@@ -916,7 +919,7 @@ __uint8_t reader(void *p)
 {
     int& address = *(int*)p;
     unsigned char data;
-    Z80_READ_BYTE(address, data);
+    data = readByte(nullptr, address);
     address++;
     return data;
 }
@@ -945,7 +948,7 @@ int disassemble(int address, Debugger *d, int bytecount)
         int opcode_bytes_pad = 1 + 3 + 3 + 3 - opcode_length * 3;
         for(int i = 0; i < opcode_length; i++) {
             unsigned char byte;
-            Z80_READ_BYTE(address_was + i, byte);
+            byte = readByte(nullptr, address_was + i);
             printf("%.2hhX ", byte);
         }
 
@@ -977,7 +980,7 @@ void disassemble_instructions(int address, Debugger *d, int insncount)
 
 
 // XXX make this pointers-to-members
-typedef bool (*command_handler)(Debugger* d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv);
+typedef bool (*command_handler)(Debugger* d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv);
 
 std::map<std::string, command_handler> command_handlers;
 
@@ -1000,13 +1003,13 @@ bool lookup_or_parse(std::map<std::string, int>& symbol_to_address, char *s, int
 void store_memory(void *arg, int address, unsigned char p)
 {
     int *info = (int*)arg;
-    Z80_WRITE_BYTE(address, p);
+    writeByte(nullptr, address, p);
     info[0] = std::min(info[0], address);
     info[1] = std::max(info[1], address);
     info[2]++; // XXX Could be overwrites...
 }
 
-bool debugger_readhex(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_readhex(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "readhex: expected filename argument\n");
@@ -1030,7 +1033,7 @@ bool debugger_readhex(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* 
     return false;
 }
 
-bool debugger_readbin(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_readbin(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 3) {
         fprintf(stderr, "readbin: expected filename and address\n");
@@ -1051,7 +1054,7 @@ bool debugger_readbin(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* 
     size_t size;
     while((size = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
         for(size_t i = 0; i <= size; i++, a++)
-            Z80_WRITE_BYTE(a, buffer[i]);
+            writeByte(nullptr, a, buffer[i]);
     }
     printf("Read %d (0x%04X) bytes from %s into 0x%04X..0x%04X\n",
         a - address, a - address, argv[1], address, a - 1);
@@ -1092,7 +1095,7 @@ void dump_buffer_hex(int indent, int actual_address, unsigned char *data, int si
     }
 }
 
-bool debugger_dis(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_dis(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 3) {
         fprintf(stderr, "dis: expected address and count\n");
@@ -1114,7 +1117,7 @@ bool debugger_dis(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* stat
     return false;
 }
 
-bool debugger_dump(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_dump(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 3) {
         fprintf(stderr, "dump: expected address and length\n");
@@ -1134,13 +1137,13 @@ bool debugger_dump(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
     }
     unsigned char buffer[65536];
     for(int i = 0; i < length; i++) {
-        Z80_READ_BYTE(address + i, buffer[i]);
+        buffer[i] = readByte(nullptr, address + i);
     }
     dump_buffer_hex(4, address, buffer, length);
     return false;
 }
 
-bool debugger_symbols(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_symbols(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "symbols: expected filename argument\n");
@@ -1150,7 +1153,7 @@ bool debugger_symbols(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* 
     return false;
 }
 
-bool debugger_fill(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_fill(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 4) {
         fprintf(stderr, "fill: expected address, length, and value\n");
@@ -1175,12 +1178,12 @@ bool debugger_fill(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
     }
     printf("fill %d for %d with %d\n", address, length, value);
     for(int i = 0; i < length; i++) {
-        Z80_WRITE_BYTE(address + i, value);
+        writeByte(nullptr, address + i, value);
     }
     return false;
 }
 
-bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     using namespace TMS9918A;
     FILE *fp = fopen("output.ppm", "wb");
@@ -1216,7 +1219,7 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     return false;
 }
 
-bool debugger_in(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_in(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "out: expected port number\n");
@@ -1229,12 +1232,12 @@ bool debugger_in(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state
         return false;
     }
     unsigned char byte;
-    Z80_INPUT_BYTE(port, byte);
+    byte = inPort(nullptr, port);
     printf("received byte 0x%02X from port %d (0x%02X)\n", byte, port, port);
     return false;
 }
 
-bool debugger_out(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_out(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 3) {
         fprintf(stderr, "out: expected port number and byte\n");
@@ -1251,11 +1254,11 @@ bool debugger_out(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* stat
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[2]);
         return false;
     }
-    Z80_OUTPUT_BYTE(port, value);
+    outPort(nullptr, port, value);
     return false;
 }
 
-bool debugger_help(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_help(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     printf("Debugger commands:\n");
     printf("    go                    - continue normally\n");
@@ -1283,7 +1286,7 @@ bool debugger_help(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
     return false;
 }
 
-bool debugger_continue(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_continue(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     d->state_may_have_changed = true;
     return true;
@@ -1291,7 +1294,7 @@ bool debugger_continue(Debugger *d, std::vector<board_base*>& boards, Z80_STATE*
 
 bool brads_zero_check = true;
 
-bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     int count = 1;
     bool verbose = false;
@@ -1310,14 +1313,14 @@ bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
         }
     }
     for(int i = 0; i < count; i++) {
-        d->clk += Z80Emulate(state, 1);
+        d->clk += z80.execute(1);
         if(i < count - 1) {
             if(verbose) {
-                print_state(state);
-                disassemble(state->pc, d, 1);
+                print_state(z80);
+                disassemble(z80.reg.PC, d, 1);
             }
         }
-        if(d->should_debug(boards, state)) {
+        if(d->should_debug(boards, z80)) {
             break;
         }
     }
@@ -1327,19 +1330,21 @@ bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
     return false;
 }
 
-bool debugger_jump(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_jump(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "jump: expected address\n");
         return false;
     }
 
-    if(!lookup_or_parse(d->symbol_to_address, argv[1], state->pc)) {
+    int address;
+    if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
     }
+    z80.reg.PC = address;
 
     char *endptr;
-    state->pc = strtol(argv[1], &endptr, 0);
+    z80.reg.PC = strtol(argv[1], &endptr, 0);
     if(*endptr != '\0') {
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[1]);
         return false;
@@ -1350,14 +1355,14 @@ bool debugger_jump(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* sta
     return true;
 }
 
-bool debugger_pc(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_pc(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "jump: expected address\n");
         return false;
     }
     char *endptr;
-    state->pc = strtol(argv[1], &endptr, 0);
+    z80.reg.PC = strtol(argv[1], &endptr, 0);
     if(*endptr != '\0') {
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[1]);
         return false;
@@ -1366,13 +1371,13 @@ bool debugger_pc(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state
     return false;
 }
 
-bool debugger_quit(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_quit(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     quit_requested = true;
     return true;
 }
 
-bool debugger_break(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_break(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "break: expected address\n");
@@ -1388,7 +1393,7 @@ bool debugger_break(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     return false;
 }
 
-bool debugger_watch(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_watch(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "watch: expected address\n");
@@ -1401,12 +1406,12 @@ bool debugger_watch(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* st
     }
 
     unsigned char old_value;
-    Z80_READ_BYTE(address, old_value);
+    old_value = readByte(nullptr, address);
     d->breakpoints.push_back(BreakPoint(address, old_value));
     return false;
 }
 
-bool debugger_watchio(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_watchio(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "watchio: expected address\n");
@@ -1428,7 +1433,7 @@ bool debugger_watchio(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* 
     return false;
 }
 
-bool debugger_disable(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_disable(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "break: expected address\n");
@@ -1448,7 +1453,7 @@ bool debugger_disable(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* 
     return false;
 }
 
-bool debugger_enable(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_enable(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "break: expected address\n");
@@ -1468,7 +1473,7 @@ bool debugger_enable(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* s
     return false;
 }
 
-bool debugger_remove(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_remove(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "break: expected address\n");
@@ -1488,7 +1493,7 @@ bool debugger_remove(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* s
     return false;
 }
 
-bool debugger_list(Debugger *d, std::vector<board_base*>& boards, Z80_STATE* state, int argc, char **argv)
+bool debugger_list(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
 {
     printf("breakpoints:\n");
     for(auto i = d->breakpoints.begin(); i != d->breakpoints.end(); i++) {
@@ -1537,7 +1542,7 @@ void populate_command_handlers()
         // reset
 }
 
-bool Debugger::process_command(std::vector<board_base*>& boards, Z80_STATE* state, char *command)
+bool Debugger::process_command(std::vector<board_base*>& boards, Z80 &z80, char *command)
 {
     // process commands
     char **ap, *argv[10];
@@ -1553,7 +1558,7 @@ bool Debugger::process_command(std::vector<board_base*>& boards, Z80_STATE* stat
 
     if(argc == 0) {
         if(last_was_step) {
-            return debugger_step(this, boards, state, argc, argv);
+            return debugger_step(this, boards, z80, argc, argv);
         } else {
             return false;
         }
@@ -1566,15 +1571,15 @@ bool Debugger::process_command(std::vector<board_base*>& boards, Z80_STATE* stat
         return false;
     }
     
-    return (*it).second(this, boards, state, argc, argv);
+    return (*it).second(this, boards, z80, argc, argv);
 }
 
-bool Debugger::process_line(std::vector<board_base*>& boards, Z80_STATE* state, char *line)
+bool Debugger::process_line(std::vector<board_base*>& boards, Z80 &z80, char *line)
 {
     char *command;
 
     while((command = strsep(&line, ";")) != NULL) {
-        bool run = process_command(boards, state, command);
+        bool run = process_command(boards, z80, command);
         if(run) {
             return true;
         }
@@ -1582,7 +1587,7 @@ bool Debugger::process_line(std::vector<board_base*>& boards, Z80_STATE* state, 
     return false;
 }
 
-bool Debugger::should_debug(std::vector<board_base*>& boards, Z80_STATE* state)
+bool Debugger::should_debug(std::vector<board_base*>& boards, Z80 &z80)
 {
     int which;
     for(auto *b : boards) {
@@ -1601,7 +1606,7 @@ bool Debugger::should_debug(std::vector<board_base*>& boards, Z80_STATE* state)
             }
         }
     }
-    bool should = !last_was_jump && is_breakpoint_triggered(breakpoints, state, which);
+    bool should = !last_was_jump && is_breakpoint_triggered(breakpoints, z80, which);
     last_was_jump = false;
     return should;
 }
@@ -1611,7 +1616,7 @@ void mark_enter_debugger(int signal)
     enter_debugger = true;
 }
 
-void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80_STATE* state)
+void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80 &z80)
 {
     signal(SIGINT, previous_sigint);
     for(auto b = boards.begin(); b != boards.end(); b++) {
@@ -1623,24 +1628,24 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80_STATE* state)
         do {
             if(state_may_have_changed) {
                 state_may_have_changed = false;
-                print_state(state);
-                disassemble(state->pc, this, 1);
+                print_state(z80);
+                disassemble(z80.reg.PC, this, 1);
             }
             int which;
-            if(is_breakpoint_triggered(breakpoints, state, which))
+            if(is_breakpoint_triggered(breakpoints, z80, which))
             {
                 printf("breakpoint %d: ", which);
                 BreakPoint& bp = breakpoints[which];
                 if(bp.type == BreakPoint::INSTRUCTION) {
                     int symbol_offset;
-                    std::string& sym = get_symbol(state->pc, symbol_offset);
+                    std::string& sym = get_symbol(z80.reg.PC, symbol_offset);
                     printf("break at 0x%04x (%s+%d)\n", bp.address, sym.c_str(), symbol_offset);
                 } else {
                     unsigned char new_value;
-                    Z80_READ_BYTE(bp.address, new_value);
+                    new_value = readByte(nullptr, bp.address);
                     printf("change at 0x%04X from 0x%02X to 0x%02X\n", bp.address, bp.old_value, new_value);
                 }
-                clear_breakpoints(breakpoints, state);
+                clear_breakpoints(breakpoints, z80);
             }
             if(fp == stdin) {
                 char *line;
@@ -1653,7 +1658,7 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80_STATE* state)
                     if(strlen(line) > 0) {
                         add_history(line);
                     }
-                    run = process_line(boards, state, line);
+                    run = process_line(boards, z80, line);
                     free(line);
                 }
             } else {
@@ -1662,7 +1667,7 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80_STATE* state)
                     break;
                 }
                 line[strlen(line) - 1] = '\0';
-                run = process_line(boards, state, line);
+                run = process_line(boards, z80, line);
             }
 
         } while(!run);
@@ -1911,7 +1916,7 @@ int main(int argc, char **argv)
 #ifdef PROVIDE_DEBUGGER
     if(debugger) {
         enter_debugger = true;
-        debugger->process_line(boards, &z80, debugger_argument);
+        debugger->process_line(boards, z80, debugger_argument);
     }
 #endif
 
@@ -1928,8 +1933,8 @@ int main(int argc, char **argv)
         (void)prevTick; // If !ROSA then prevTick is not referenced. // XXX move iterate call to platform main loop
 
 #ifdef PROVIDE_DEBUGGER
-        if(debugger && (enter_debugger || debugger->should_debug(boards, &z80))) {
-            debugger->go(stdin, boards, &z80);
+        if(debugger && (enter_debugger || debugger->should_debug(boards, z80))) {
+            debugger->go(stdin, boards, z80);
             enter_debugger = false;
         } else
 #endif
@@ -1956,8 +1961,8 @@ int main(int argc, char **argv)
                 clk_t clocks_this_step = z80.execute(iterated_clock_quantum);
 #ifdef PROVIDE_DEBUGGER
                 if(debugger) {
-                    if(enter_debugger || debugger->should_debug(boards, &z80)) {
-                        debugger->go(stdin, boards, &z80);
+                    if(enter_debugger || debugger->should_debug(boards, z80)) {
+                        debugger->go(stdin, boards, z80);
                         enter_debugger = false;
                     }
                 }

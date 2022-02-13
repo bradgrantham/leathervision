@@ -23,9 +23,8 @@ OBJECTS_GLFW = emulator.o readhex.o coleco_platform_glfw.o gl_utility.o
 OBJECTS_SDL = emulator.o coleco_platform_sdl.o
 OBJECTS_TERMINAL = emulator.o coleco_platform_template.o
 
-
 emulator: $(OBJECTS_GLFW)
-	$(CXX) -DPROVIDE_DEBUGGER $(LDFLAGS_GLFW) $^   -o $@ $(LDLIBS_GLFW)
+	$(CXX) $(LDFLAGS_GLFW) $^   -o $@ $(LDLIBS_GLFW)
 
 emulator_terminal: $(OBJECTS_TERMINAL)
 	$(CXX) $(LDFLAGS) $^   -o $@ $(LDLIBS)
