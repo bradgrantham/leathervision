@@ -1,17 +1,8 @@
 controller change automation
-    #ifdef ENABLE_AUTOMATION
-    need clk_t& in ColecoHW
-    record
-        --record-controllers filename.txt
-        open in main, pass lambda to ColecoHW to write to file
-            maybe lambda has &clk
-            "clock# {k,j} # setbits resetbits"
-        in ColecoHW::io_read, if state has changed, call lambda
-            so need to store previous state all the time
     playback
         --playback-controllers filename.txt
         read all in on init into deque of struct ControllerEvent { clk_t clk; bool JoystickNotKeypad; enum Controller which; uint8_t setbits; uint8_t resetbits; }
-            pass deque to ColecoHW?  Or pass some kind of GetNextMatchingEvent lambda?
+            pass deque into lambda
         in ColecoHW::io_read, if clock is > controller_events.clk and which == read address, assert in same state as JoystickNotKeypad, set and reset bits and return current value
 
 TODO
