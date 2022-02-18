@@ -803,7 +803,7 @@ bool ROMboard::write(int addr, unsigned char data)
 
 #include "bg80d.h"
 
-__uint8_t reader(void *p)
+uint8_t reader(void *p)
 {
     int& address = *(int*)p;
     unsigned char data;
@@ -1735,9 +1735,6 @@ void usage(char *progname)
     printf("\n");
 }
 
-using namespace PlatformInterface;
-
-
 void do_vdp_test(const char *vdp_dump_name, const char *image_name)
 {
     using namespace TMS9918A;
@@ -1828,18 +1825,21 @@ void printDebugMessage(void*, const char* str)
     puts(str);
 }
 
+
 uint8_t GetPlatformControllerState(int index, bool JoystickNotKeypad)
 {
-    PlatformInterface::ControllerIndex controller = (index == 0) ? PlatformInterface::CONTROLLER_1 : PlatformInterface::CONTROLLER_2;
+    using namespace PlatformInterface;
+    ControllerIndex controller = (index == 0) ? CONTROLLER_1 : CONTROLLER_2;
     if(JoystickNotKeypad) {
-        return PlatformInterface::GetJoystickState(controller);
+        return GetJoystickState(controller);
     } else {
-        return PlatformInterface::GetKeypadState(controller);
+        return GetKeypadState(controller);
     }
 }
 
 int main(int argc, char **argv)
 {
+    using namespace PlatformInterface;
     using namespace std::chrono_literals;
 #ifdef PROVIDE_DEBUGGER
     bool do_debugger = false;
