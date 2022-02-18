@@ -15,6 +15,8 @@
 #include <sys/time.h>
 #include <sys/types.h>
 
+#define ENABLE_AUTOMATION
+
 #ifdef PROVIDE_DEBUGGER
 #include <signal.h>
 #include <readline/readline.h>
@@ -1825,7 +1827,6 @@ void printDebugMessage(void*, const char* str)
     puts(str);
 }
 
-
 uint8_t GetPlatformControllerState(int index, bool JoystickNotKeypad)
 {
     using namespace PlatformInterface;
@@ -1847,6 +1848,12 @@ int main(int argc, char **argv)
 
     populate_command_handlers();
 #endif
+#ifdef ENABLE_AUTOMATION
+    bool record_controllers = false;
+    std::string record_controller_filename;
+    bool playback_controllers = false;
+    std::string playback_controller_filename;
+#endif
 
     char *progname = argv[0];
     argc -= 1;
@@ -1855,12 +1862,13 @@ int main(int argc, char **argv)
     while((argc > 0) && (argv[0][0] == '-')) {
 	if(
             (strcmp(argv[0], "-help") == 0) ||
+            (strcmp(argv[0], "--help") == 0) ||
             (strcmp(argv[0], "-h") == 0) ||
             (strcmp(argv[0], "-?") == 0))
          {
              usage(progname);
              exit(EXIT_SUCCESS);
-	} else if(strcmp(argv[0], "-vdp-test") == 0) {
+	} else if(strcmp(argv[0], "--vdp-test") == 0) {
             if(argc < 3) {
                 fprintf(stderr, "-vdp-test requires VDP register dump filename and output image filename\n");
                 usage(progname);
@@ -1868,8 +1876,49 @@ int main(int argc, char **argv)
             }
             do_vdp_test(argv[1], argv[2]);
             exit(0);
+        }
+
+#ifdef ENABLE_AUTOMATION
+	else if(strcmp(argv[0], "--record-controllers") == 0) {
+
+            if(argc < 2) {
+                fprintf(stderr, "--record-controllers requires filename to which to record controller state\n");
+                usage(progname);
+                exit(EXIT_FAILURE);
+            }
+            if(playback_controllers) {
+                fprintf(stderr, "only one of --record-controllers or --playback-controllers can be provided.\n");
+                usage(progname);
+                exit(EXIT_FAILURE);
+            }
+
+            record_controllers = true;
+            record_controller_filename = argv[1];
+            argv += 2;
+            argc -= 2;
+
+	} else if(strcmp(argv[0], "--playback-controllers") == 0) {
+
+            if(argc < 2) {
+                fprintf(stderr, "--playback-controllers requires filename from which to playback controller state\n");
+                usage(progname);
+                exit(EXIT_FAILURE);
+            }
+            if(record_controllers) {
+                fprintf(stderr, "only one of --record-controllers or --playback-controllers can be provided.\n");
+                usage(progname);
+                exit(EXIT_FAILURE);
+            }
+
+            playback_controllers = true;
+            playback_controller_filename = argv[1];
+            argv += 2;
+            argc -= 2;
+        }
+#endif
+
 #ifdef PROVIDE_DEBUGGER
-	} else if(strcmp(argv[0], "-debugger") == 0) {
+	else if(strcmp(argv[0], "--debugger") == 0) {
             if(argc < 2) {
                 fprintf(stderr, "-debugger requires initial commands (can be empty, e.g. \"\"\n");
                 usage(progname);
@@ -1879,8 +1928,10 @@ int main(int argc, char **argv)
             debugger_argument = argv[1];
 	    argc -= 2;
 	    argv += 2;
+        }
 #endif
-	} else {
+
+	else {
 	    fprintf(stderr, "unknown parameter \"%s\"\n", argv[0]);
             usage(progname);
 	    exit(EXIT_FAILURE);
@@ -1939,7 +1990,46 @@ int main(int argc, char **argv)
     CartROM = cart_rom;
 
     clk_t clk = 0;
-    ColecoHW* colecohw = new ColecoHW(audioSampleRate, preferredAudioBufferSampleCount, GetPlatformControllerState);
+
+#ifdef ENABLE_AUTOMATION
+
+    FILE *recording_output = nullptr;
+    if(record_controllers) {
+        recording_output = fopen(record_controller_filename.c_str(), "w");
+        if(recording_output == NULL) {
+            fprintf(stderr, "couldn't open %s to write controller data\n", record_controller_filename.c_str());
+            exit(1);
+        }
+    }
+
+    uint8_t joystick_state[2] = {127, 127};
+    uint8_t keypad_state[2] = {127, 127};
+
+    auto get_controller_state = [&clk, &joystick_state, &keypad_state, recording_output, record_controllers](int index, bool JoystickNotKeypad) -> uint8_t {
+        uint8_t previous = JoystickNotKeypad ? joystick_state[index] : keypad_state[index];
+        uint8_t current = GetPlatformControllerState(index, JoystickNotKeypad);
+        if(current != previous) {
+            uint8_t difference = previous ^ current;
+            uint8_t bits_set = difference & current;
+            uint8_t bits_cleared = difference & previous;
+            if(record_controllers) {
+                assert(recording_output);
+                fprintf(recording_output, "%llu %c %d %d %d\n", clk, JoystickNotKeypad ? 'j' : 'k', index, bits_set, bits_cleared);
+            }
+            (JoystickNotKeypad ? joystick_state[index] : keypad_state[index]) = current;
+        }
+        return current;
+    };
+
+#else
+
+    auto get_controller_state = [](int index, bool JoystickNotKeypad) -> uint8_t {
+        return GetPlatformControllerState(index, JoystickNotKeypad);
+    };
+
+#endif
+
+    ColecoHW* colecohw = new ColecoHW(audioSampleRate, preferredAudioBufferSampleCount, get_controller_state);
     bool save_vdp = false;
 
     [[maybe_unused]] Debugger *debugger = NULL;
