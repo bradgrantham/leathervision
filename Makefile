@@ -44,7 +44,7 @@ clean:
 immaculate: clean
 	rm tables.h maketables
 
-emulator.o: emulator.h bg80d.h coleco_platform.h tms9918.h
+emulator.o: emulator.h bg80d.h coleco_platform.h tms9918.h z80.hpp
 
 coleco_platform_glfw.o: coleco_platform.h tms9918.h
 coleco_platform_empty.o: coleco_platform.h tms9918.h
