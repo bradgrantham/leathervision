@@ -30,3 +30,17 @@
 *.exe
 *.out
 *.app
+
+.DS_Store
+*.ROM
+*.rom
+*.col
+Instruments.trace
+__MACOSX/
+*.wasm
+
+emulator
+emulator_empty
+emulator_sdl
+emulator_terminal
+joystick.ini*
