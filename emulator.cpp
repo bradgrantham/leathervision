@@ -96,6 +96,18 @@ std::vector<board_base*> boards;
 
 unsigned char readByte(void* arg, unsigned short addr)
 {
+#if 1
+    if(addr >= CartROM->base && addr < CartROM->base + CartROM->length) {
+        return CartROM->bytes.get()[addr - CartROM->base];
+    }
+    if(addr >= BIOSROM->base && addr < BIOSROM->base + BIOSROM->length) {
+        return BIOSROM->bytes.get()[addr - BIOSROM->base];
+    }
+    if(addr >= RAM->base && addr < RAM->base + RAM->length) {
+        return RAM->bytes.get()[addr - RAM->base];
+    }
+    return 0;
+#else
     uint8_t b = 0x00;
 
     if(CartROM->read(addr & 0xFFFF, b)) {
@@ -107,6 +119,7 @@ unsigned char readByte(void* arg, unsigned short addr)
     RAM->read(addr & 0xFFFF, b);
 
     return b;
+#endif
 }
 
 void writeByte(void* arg, unsigned short addr, unsigned char value)
@@ -800,6 +813,63 @@ bool ROMboard::write(int addr, unsigned char data)
     return false;
 }
 
+#include "bg80d.h"
+
+__uint8_t reader(void *p)
+{
+    int& address = *(int*)p;
+    unsigned char data;
+    data = readByte(nullptr, address);
+    address++;
+    return data;
+}
+
+int disassemble(int address, std::function<std::string& (int address, int& symbol_offset)> get_symbol, int bytecount)
+{
+    int total_bytes = 0;
+
+#if USE_BG80D
+
+    while(bytecount > 0) {
+
+        int address_was = address;
+
+        int symbol_offset;
+        std::string& sym = get_symbol(address, symbol_offset);
+
+        bg80d::opcode_spec_t *opcode = bg80d::decode(reader, &address, address);
+        if(opcode == 0) {
+            break;
+        }
+
+        printf("%04X %s+0x%04X%*s", address_was, sym.c_str(), symbol_offset, 16 - (int)sym.size() - 5, "");
+
+        int opcode_length = (opcode->pc_after - address_was);
+        int opcode_bytes_pad = 1 + 3 + 3 + 3 - opcode_length * 3;
+        for(int i = 0; i < opcode_length; i++) {
+            unsigned char byte;
+            byte = readByte(nullptr, address_was + i);
+            printf("%.2hhX ", byte);
+        }
+
+        printf("%*s", opcode_bytes_pad, "");
+        printf("%5s %s\n", opcode->prefix, opcode->description);
+
+        bytecount -= opcode_length;
+	total_bytes += opcode_length;
+    }
+    // FB5C conin+0x0002         e6     AND A, n        ff          ;  AND of ff to reg
+
+#else
+
+    int symbol_offset;
+    std::string& sym = get_symbol(address, symbol_offset);
+    printf("%04X %s+0x%04X%*s : %02X %02X %02X\n", address, sym.c_str(), symbol_offset, 16 - (int)sym.size() - 5, "", buffer[0], buffer[1], buffer[2]);
+
+#endif
+
+    return total_bytes;
+}
 
 #ifdef PROVIDE_DEBUGGER
 
@@ -942,71 +1012,6 @@ struct Debugger
     bool should_debug(std::vector<board_base*>& boards, Z80 &z80);
 };
 
-#include "bg80d.h"
-
-__uint8_t reader(void *p)
-{
-    int& address = *(int*)p;
-    unsigned char data;
-    data = readByte(nullptr, address);
-    address++;
-    return data;
-}
-
-int disassemble(int address, Debugger *d, int bytecount)
-{
-    int total_bytes = 0;
-
-#if USE_BG80D
-
-    while(bytecount > 0) {
-
-        int address_was = address;
-
-        int symbol_offset;
-        std::string& sym = d->get_symbol(address, symbol_offset);
-
-        bg80d::opcode_spec_t *opcode = bg80d::decode(reader, &address, address);
-        if(opcode == 0) {
-            break;
-        }
-
-        printf("%04X %s+0x%04X%*s", address_was, sym.c_str(), symbol_offset, 16 - (int)sym.size() - 5, "");
-
-        int opcode_length = (opcode->pc_after - address_was);
-        int opcode_bytes_pad = 1 + 3 + 3 + 3 - opcode_length * 3;
-        for(int i = 0; i < opcode_length; i++) {
-            unsigned char byte;
-            byte = readByte(nullptr, address_was + i);
-            printf("%.2hhX ", byte);
-        }
-
-        printf("%*s", opcode_bytes_pad, "");
-        printf("%5s %s\n", opcode->prefix, opcode->description);
-
-        bytecount -= opcode_length;
-	total_bytes += opcode_length;
-    }
-    // FB5C conin+0x0002         e6     AND A, n        ff          ;  AND of ff to reg
-
-#else
-
-    int symbol_offset;
-    std::string& sym = d->get_symbol(address, symbol_offset);
-    printf("%04X %s+0x%04X%*s : %02X %02X %02X\n", address, sym.c_str(), symbol_offset, 16 - (int)sym.size() - 5, "", buffer[0], buffer[1], buffer[2]);
-
-#endif
-
-    return total_bytes;
-}
-
-void disassemble_instructions(int address, Debugger *d, int insncount)
-{
-    for(int i = 0; i < insncount; i++) {
-	address += disassemble(address, d, 1);
-    }
-}
-
 
 // XXX make this pointers-to-members
 typedef bool (*command_handler)(Debugger* d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv);
@@ -1121,6 +1126,13 @@ void dump_buffer_hex(int indent, int actual_address, unsigned char *data, int si
         size -= howmany;
         data += howmany;
         address += howmany;
+    }
+}
+
+void disassemble_instructions(int address, Debugger *d, int insncount)
+{
+    for(int i = 0; i < insncount; i++) {
+	address += disassemble(address, [&d](int address, int& symbol_offset){return d->get_symbol(address, symbol_offset);}, 1);
     }
 }
 
@@ -1346,7 +1358,7 @@ bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int 
         if(i < count - 1) {
             if(verbose) {
                 print_state(z80);
-                disassemble(z80.reg.PC, d, 1);
+                disassemble(z80.reg.PC, [&d](int address, int& symbol_offset){return d->get_symbol(address, symbol_offset);}, 1);
             }
         }
         if(d->should_debug(boards, z80)) {
@@ -1658,7 +1670,7 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80 &z80)
             if(state_may_have_changed) {
                 state_may_have_changed = false;
                 print_state(z80);
-                disassemble(z80.reg.PC, this, 1);
+                disassemble(z80.reg.PC, [&this](int address, int& symbol_offset){return this->get_symbol(address, symbol_offset);}, 1);
             }
             int which;
             if(is_breakpoint_triggered(breakpoints, z80, which))
@@ -1823,6 +1835,10 @@ static void sleep_for(int32_t millis)
 #endif
 }
 
+void printDebugMessage(void*, const char* str)
+{
+    puts(str);
+}
 
 int main(int argc, char **argv)
 {
@@ -1961,6 +1977,8 @@ int main(int argc, char **argv)
     prevTick = HAL_GetTick();
 #endif
 
+    // z80.setDebugMessage(printDebugMessage);
+
     PlatformInterface::MainLoopBodyFunc main_loop_body = [&clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &previous_field_start_clock, &emulation_start_time, &prevTick]() {
         (void)debugger; // If !PROVIDE_DEBUGGER then debugger is not referenced.
         (void)prevTick; // If !ROSA then prevTick is not referenced. // XXX move iterate call to platform main loop
@@ -1991,6 +2009,8 @@ int main(int argc, char **argv)
 #endif /* ROSA */
 
             while(clk < target_clock) {
+                std::string dummy;
+                // disassemble(z80.reg.PC, [&dummy](int address, int& symbol_offset)->std::string&{return dummy;}, 1);
                 clk_t clocks_this_step = z80.execute(iterated_clock_quantum);
 #ifdef PROVIDE_DEBUGGER
                 if(debugger) {
