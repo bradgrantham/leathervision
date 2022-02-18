@@ -639,13 +639,14 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
     std::chrono::duration<float> elapsed;
     
     elapsed = now - previous_event_time;
-    if(elapsed.count() > .05) {
+    if(elapsed.count() > .02) {
         iterate_ui();
         previous_event_time = now;
     }
 
     elapsed = now - previous_draw_time;
-    if(elapsed.count() > .05) {
+    if(elapsed.count() > .02)
+    {
         CheckOpenGL(__FILE__, __LINE__);
         redraw(my_window);
         CheckOpenGL(__FILE__, __LINE__);
