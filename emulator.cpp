@@ -605,6 +605,8 @@ struct TMS9918AEmulator
     }
 };
 
+typedef std::function<uint8_t (int index, bool JoystickNotKeypad)> GetControllerStateFunc;
+
 struct ColecoHW : board_base
 {
     TMS9918AEmulator vdp;
@@ -621,9 +623,11 @@ struct ColecoHW : board_base
     static constexpr int SWITCH_TO_JOYSTICK_PORT = 0xC0;
     static constexpr int CONTROLLER1_PORT = 0xFC;
     static constexpr int CONTROLLER2_PORT = 0xFF;
+    GetControllerStateFunc get_controller_state;
 
-    ColecoHW(int sample_rate, size_t audio_buffer_size) :
-        sound(machine_clock_rate, sample_rate, audio_buffer_size)
+    ColecoHW(int sample_rate, size_t audio_buffer_size, GetControllerStateFunc get_controller_state) :
+        sound(machine_clock_rate, sample_rate, audio_buffer_size),
+        get_controller_state(get_controller_state)
     {
     }
 
@@ -717,26 +721,10 @@ struct ColecoHW : board_base
             }
         }
 
-        if((addr >= 0xE0) && (addr <= 0xFF) && ((addr & 0x02) == 0x0)) {
-            if(reading_joystick) {
-                data = PlatformInterface::GetJoystickState(PlatformInterface::CONTROLLER_1);
-            } else {
-                data = PlatformInterface::GetKeypadState(PlatformInterface::CONTROLLER_1);
-            }
-            if(debug & DEBUG_IO) printf("read controller1 port 0x%02X, read 0x%02X\n", addr, data);
-#ifdef PROVIDE_DEBUGGER
-            io_reads.insert(addr);
-#endif
-            return true;
-        }
-
-        if((addr >= 0xE0) && (addr <= 0xFF) && ((addr & 0x02) == 0x2)) {
-            if(reading_joystick) {
-                data = PlatformInterface::GetJoystickState(PlatformInterface::CONTROLLER_2);
-            } else {
-                data = PlatformInterface::GetKeypadState(PlatformInterface::CONTROLLER_2);
-            }
-            if(debug & DEBUG_IO) printf("read controller2 port 0x%02X, read 0x%02X\n", addr, data);
+        if((addr >= 0xE0) && (addr <= 0xFF)) {
+            int index = (addr & 0x02) >> 1;
+            data = get_controller_state(index, reading_joystick);
+            if(debug & DEBUG_IO) printf("read controller%d port 0x%02X, read 0x%02X\n", index + 1, addr, data);
 #ifdef PROVIDE_DEBUGGER
             io_reads.insert(addr);
 #endif
@@ -1840,6 +1828,16 @@ void printDebugMessage(void*, const char* str)
     puts(str);
 }
 
+uint8_t GetPlatformControllerState(int index, bool JoystickNotKeypad)
+{
+    PlatformInterface::ControllerIndex controller = (index == 0) ? PlatformInterface::CONTROLLER_1 : PlatformInterface::CONTROLLER_2;
+    if(JoystickNotKeypad) {
+        return PlatformInterface::GetJoystickState(controller);
+    } else {
+        return PlatformInterface::GetKeypadState(controller);
+    }
+}
+
 int main(int argc, char **argv)
 {
     using namespace std::chrono_literals;
@@ -1941,7 +1939,7 @@ int main(int argc, char **argv)
     CartROM = cart_rom;
 
     clk_t clk = 0;
-    ColecoHW* colecohw = new ColecoHW(audioSampleRate, preferredAudioBufferSampleCount);
+    ColecoHW* colecohw = new ColecoHW(audioSampleRate, preferredAudioBufferSampleCount, GetPlatformControllerState);
     bool save_vdp = false;
 
     [[maybe_unused]] Debugger *debugger = NULL;
@@ -2033,6 +2031,7 @@ int main(int argc, char **argv)
                     }
 
                     colecohw->vdp.vsync();
+                    colecohw->fill_flush_audio(clk, audio_flush);
                     previous_field_start_clock = clk;
                 }
 
@@ -2055,8 +2054,6 @@ int main(int argc, char **argv)
             }
 #endif
         }
-
-        colecohw->fill_flush_audio(clk, audio_flush);
 
         while(PlatformInterface::EventIsWaiting()) {
             PlatformInterface::Event e = PlatformInterface::DequeueEvent();
