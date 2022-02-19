@@ -101,13 +101,13 @@ std::vector<board_base*> boards;
 unsigned char readByte(void* arg, unsigned short addr)
 {
 #if 1
-    if(addr >= CartROM->base && addr < CartROM->base + CartROM->length) {
+    if((addr >= CartROM->base) && (addr < CartROM->base + CartROM->length)) {
         return CartROM->bytes.get()[addr - CartROM->base];
     }
-    if(addr >= BIOSROM->base && addr < BIOSROM->base + BIOSROM->length) {
+    if((addr >= BIOSROM->base) && (addr < BIOSROM->base + BIOSROM->length)) {
         return BIOSROM->bytes.get()[addr - BIOSROM->base];
     }
-    if(addr >= RAM->base && addr < RAM->base + RAM->length) {
+    if((addr >= RAM->base) && (addr < RAM->base + RAM->length)) {
         return RAM->bytes.get()[addr - RAM->base];
     }
     return 0;
@@ -2172,7 +2172,7 @@ int main(int argc, char **argv)
                     // if(which++ > 832600)
                     {
                         print_state(z80);
-                        disassemble(z80.reg.PC, [&dummy](int address, int& symbol_offset)->std::string&{return dummy;}, 1);
+                        disassemble(z80.reg.PC, [&dummy](int address, int& symbol_offset)->std::string&{symbol_offset = 0; return dummy;}, 1);
                     }
                 }
                 clk_t clocks_this_step = z80.execute(iterated_clock_quantum);
