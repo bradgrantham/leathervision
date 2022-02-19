@@ -853,6 +853,10 @@ int disassemble(int address, std::function<std::string& (int address, int& symbo
 #else
 
     int symbol_offset;
+    uint8_t buffer[3];
+    for(int i = 0; i < 3; i++) {
+        Z80_READ_BYTE(address + i, buffer[i]);
+    }
     std::string& sym = get_symbol(address, symbol_offset);
     printf("%04X %s+0x%04X%*s : %02X %02X %02X\n", address, sym.c_str(), symbol_offset, 16 - (int)sym.size() - 5, "", buffer[0], buffer[1], buffer[2]);
 
