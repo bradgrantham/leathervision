@@ -17,6 +17,8 @@
 
 #define ENABLE_AUTOMATION
 
+#define PROVIDE_DEBUGGER
+
 #ifdef PROVIDE_DEBUGGER
 #include <signal.h>
 #include <readline/readline.h>
@@ -814,7 +816,7 @@ uint8_t reader(void *p)
     return data;
 }
 
-int disassemble(int address, std::function<std::string& (int address, int& symbol_offset)> get_symbol, int bytecount)
+int disassemble(int address, std::function<const std::string& (int address, int& symbol_offset)> get_symbol, int bytecount)
 {
     int total_bytes = 0;
 
@@ -825,7 +827,7 @@ int disassemble(int address, std::function<std::string& (int address, int& symbo
         int address_was = address;
 
         int symbol_offset;
-        std::string& sym = get_symbol(address, symbol_offset);
+        const std::string& sym = get_symbol(address, symbol_offset);
 
         bg80d::opcode_spec_t *opcode = bg80d::decode(reader, &address, address);
         if(opcode == 0) {
@@ -857,7 +859,7 @@ int disassemble(int address, std::function<std::string& (int address, int& symbo
     for(int i = 0; i < 3; i++) {
         buffer[i] = readByte(nullptr, address + i);
     }
-    std::string& sym = get_symbol(address, symbol_offset);
+    const std::string& sym = get_symbol(address, symbol_offset);
     printf("%04X %s+0x%04X%*s : %02X %02X %02X\n", address, sym.c_str(), symbol_offset, 16 - (int)sym.size() - 5, "", buffer[0], buffer[1], buffer[2]);
 
 #endif
@@ -942,7 +944,7 @@ struct Debugger
     bool state_may_have_changed;
     bool last_was_step;
     bool last_was_jump;
-    std::string& get_symbol(int address, int& offset)
+    const std::string& get_symbol(int address, int& offset)
     {
         static std::string no_symbol = "";
         offset = 0;
@@ -1126,7 +1128,7 @@ void dump_buffer_hex(int indent, int actual_address, unsigned char *data, int si
 void disassemble_instructions(int address, Debugger *d, int insncount)
 {
     for(int i = 0; i < insncount; i++) {
-	address += disassemble(address, [&d](int address, int& symbol_offset){return d->get_symbol(address, symbol_offset);}, 1);
+	address += disassemble(address, [d](int address, int& symbol_offset) -> const std::string& {return d->get_symbol(address, symbol_offset);}, 1);
     }
 }
 
@@ -1352,7 +1354,7 @@ bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int 
         if(i < count - 1) {
             if(verbose) {
                 print_state(z80);
-                disassemble(z80.reg.PC, [&d](int address, int& symbol_offset){return d->get_symbol(address, symbol_offset);}, 1);
+                disassemble(z80.reg.PC, [&d](int address, int& symbol_offset) -> const std::string& {return d->get_symbol(address, symbol_offset);}, 1);
             }
         }
         if(d->should_debug(boards, z80)) {
@@ -1538,7 +1540,7 @@ bool debugger_list(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int 
         printf("%s ", (bp.type == BreakPoint::INSTRUCTION) ? " ins" : "data");
         if(bp.type == BreakPoint::INSTRUCTION) {
             int symbol_offset;
-            std::string& sym = d->get_symbol(bp.address, symbol_offset);
+            const std::string& sym = d->get_symbol(bp.address, symbol_offset);
             printf("break at 0x%04x (%s+%d)\n", bp.address, sym.c_str(), symbol_offset);
         } else {
             printf("change at 0x%04X from 0x%02X\n", bp.address, bp.old_value);
@@ -1664,7 +1666,7 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80 &z80)
             if(state_may_have_changed) {
                 state_may_have_changed = false;
                 print_state(z80);
-                disassemble(z80.reg.PC, [&this](int address, int& symbol_offset){return this->get_symbol(address, symbol_offset);}, 1);
+                disassemble(z80.reg.PC, [this](int address, int& symbol_offset) -> const std::string& {return this->get_symbol(address, symbol_offset);}, 1);
             }
             int which;
             if(is_breakpoint_triggered(breakpoints, z80, which))
@@ -1673,7 +1675,7 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80 &z80)
                 BreakPoint& bp = breakpoints[which];
                 if(bp.type == BreakPoint::INSTRUCTION) {
                     int symbol_offset;
-                    std::string& sym = get_symbol(z80.reg.PC, symbol_offset);
+                    const std::string& sym = get_symbol(z80.reg.PC, symbol_offset);
                     printf("break at 0x%04x (%s+%d)\n", bp.address, sym.c_str(), symbol_offset);
                 } else {
                     unsigned char new_value;
@@ -1734,7 +1736,9 @@ void usage(char *progname)
     printf("usage: %s [options] bios.bin cartridge.bin\n", progname);
     printf("\n");
     printf("options:\n");
-    printf("\t-debugger init          Invoke debugger on startup\n");
+#ifdef PROVIDE_DEBUGGER
+    printf("\t--debugger init          Invoke debugger on startup\n");
+#endif
     printf("\t                        \"init\" can be commands (separated by \";\"\n");
     printf("\t                        or a filename.  The initial commands can be\n");
     printf("\t                        the empty string.\n");
@@ -1930,10 +1934,10 @@ int main(int argc, char **argv)
         }
 #endif
 
-#ifdef PROVIDE_DEBUGGER
 	else if(strcmp(argv[0], "--debugger") == 0) {
+#ifdef PROVIDE_DEBUGGER
             if(argc < 2) {
-                fprintf(stderr, "-debugger requires initial commands (can be empty, e.g. \"\"\n");
+                fprintf(stderr, "--debugger requires initial commands (can be empty, e.g. \"\"\n");
                 usage(progname);
                 exit(EXIT_FAILURE);
             }
@@ -1941,8 +1945,13 @@ int main(int argc, char **argv)
             debugger_argument = argv[1];
 	    argc -= 2;
 	    argv += 2;
-        }
+#else
+            if(argc < 2) {
+                fprintf(stderr, "The debugger is not enabled in this build\n");
+                exit(EXIT_FAILURE);
+            }
 #endif
+        }
 
 	else {
 	    fprintf(stderr, "unknown parameter \"%s\"\n", argv[0]);
