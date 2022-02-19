@@ -4223,6 +4223,7 @@ class Z80
     {
         unsigned short addr = ctx->getHL();
         unsigned char n = ctx->readByte(addr, 3);
+        printf("byte is %02X\n", n);
         if (ctx->isDebug()) ctx->log("[%04X] CP %s, (%s) = $%02X", ctx->reg.PC, ctx->registerDump(0b111), ctx->registerPairDump(0b10), n);
         ctx->setFlagBySubstract(ctx->reg.pair.A, n);
         ctx->setFlagXY(ctx->reg.pair.A);
