@@ -17,7 +17,7 @@
 
 #define ENABLE_AUTOMATION
 
-#define PROVIDE_DEBUGGER
+#undef PROVIDE_DEBUGGER
 
 #ifdef PROVIDE_DEBUGGER
 #include <signal.h>
@@ -2167,7 +2167,13 @@ int main(int argc, char **argv)
 
             while(clk < target_clock) {
                 std::string dummy;
-                // disassemble(z80.reg.PC, [&dummy](int address, int& symbol_offset)->std::string&{return dummy;}, 1);
+                {
+                    static int which = 0;
+                    if(which++ > 832600) {
+                        print_state(z80);
+                        disassemble(z80.reg.PC, [&dummy](int address, int& symbol_offset)->std::string&{return dummy;}, 1);
+                    }
+                }
                 clk_t clocks_this_step = z80.execute(iterated_clock_quantum);
 #ifdef PROVIDE_DEBUGGER
                 if(debugger) {
