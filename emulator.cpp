@@ -1838,6 +1838,15 @@ uint8_t GetPlatformControllerState(int index, bool JoystickNotKeypad)
     }
 }
 
+struct ControllerEvent
+{
+    clk_t clk;
+    bool JoystickNotKeypad;
+    int index;
+    uint8_t bits_set;
+    uint8_t bits_cleared;
+};
+
 int main(int argc, char **argv)
 {
     using namespace PlatformInterface;
@@ -2002,13 +2011,47 @@ int main(int argc, char **argv)
         }
     }
 
+    std::deque<ControllerEvent> playback_events;
+    if(playback_controllers)
+    {
+        FILE *playback_input = fopen(playback_controller_filename.c_str(), "r");
+        if(playback_input == NULL) {
+            fprintf(stderr, "couldn't open %s to read controller data\n", playback_controller_filename.c_str());
+            exit(1);
+        }
+        ControllerEvent event;
+        char kind;
+        int set, cleared;
+        while(fscanf(playback_input, "%llu %c %d %d %d ", &event.clk, &kind, &event.index, &set, &cleared) == 5)
+        {
+            event.JoystickNotKeypad = (kind == 'j');
+            event.bits_set = set;
+            event.bits_cleared = cleared;
+            playback_events.push_back(event);
+        }
+        fclose(playback_input);
+        printf("Will play back %zd events\n", playback_events.size());
+
+        // Run for a few more seconds at the end of playback
+        {
+            ControllerEvent event{
+                .clk = ((playback_events.size() > 0) ? playback_events.back().clk : 0) + machine_clock_rate * 2,
+                .JoystickNotKeypad = true,
+                .index = 0,
+                .bits_set = 0,
+                .bits_cleared = 0,
+            };
+            playback_events.push_back(event);
+        }
+    }
+
     uint8_t joystick_state[2] = {127, 127};
     uint8_t keypad_state[2] = {127, 127};
 
-    auto get_controller_state = [&clk, &joystick_state, &keypad_state, recording_output, record_controllers](int index, bool JoystickNotKeypad) -> uint8_t {
+    auto get_controller_state = [&clk, &joystick_state, &keypad_state, recording_output, record_controllers, playback_controllers, &playback_events](int index, bool JoystickNotKeypad) -> uint8_t {
         uint8_t previous = JoystickNotKeypad ? joystick_state[index] : keypad_state[index];
         uint8_t current = GetPlatformControllerState(index, JoystickNotKeypad);
-        if(current != previous) {
+        if(record_controllers && (current != previous)) {
             uint8_t difference = previous ^ current;
             uint8_t bits_set = difference & current;
             uint8_t bits_cleared = difference & previous;
@@ -2016,8 +2059,21 @@ int main(int argc, char **argv)
                 assert(recording_output);
                 fprintf(recording_output, "%llu %c %d %d %d\n", clk, JoystickNotKeypad ? 'j' : 'k', index, bits_set, bits_cleared);
             }
-            (JoystickNotKeypad ? joystick_state[index] : keypad_state[index]) = current;
         }
+        if(playback_controllers) {
+            if(playback_events.size() == 0) {
+                printf("playback ending\n");
+                exit(0);
+            }
+            current = previous;
+            const ControllerEvent& next = playback_events.front();
+            if((clk >= next.clk) && (index == next.index) && (JoystickNotKeypad == next.JoystickNotKeypad)) {
+                current = (previous | next.bits_set) & ~next.bits_cleared;
+                printf("playback matched %llu at %llu, state was %d and became %d\n", next.clk, clk, previous, current);
+                playback_events.pop_front();
+            }
+        }
+        (JoystickNotKeypad ? joystick_state[index] : keypad_state[index]) = current;
         return current;
     };
 
