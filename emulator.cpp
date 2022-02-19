@@ -2169,7 +2169,8 @@ int main(int argc, char **argv)
                 std::string dummy;
                 {
                     static int which = 0;
-                    if(which++ > 832600) {
+                    // if(which++ > 832600)
+                    {
                         print_state(z80);
                         disassemble(z80.reg.PC, [&dummy](int address, int& symbol_offset)->std::string&{return dummy;}, 1);
                     }
