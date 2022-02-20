@@ -54,6 +54,7 @@ struct RAMboard : board_base
         length(length_),
         bytes(new unsigned char[length])
     {
+        std::fill(bytes.get(), bytes.get() + length, 0);
     }
     bool read(int addr, unsigned char &data);
     virtual bool memory_read(int addr, unsigned char &data)
@@ -101,6 +102,7 @@ std::vector<board_base*> boards;
 unsigned char readByte(void* arg, unsigned short addr)
 {
 #if 1
+    addr = addr & 0xFFFF;
     if((addr >= CartROM->base) && (addr < CartROM->base + CartROM->length)) {
         return CartROM->bytes.get()[addr - CartROM->base];
     }
