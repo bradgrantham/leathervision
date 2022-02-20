@@ -4223,10 +4223,8 @@ class Z80
     {
         unsigned short addr = ctx->getHL();
         unsigned char n = ctx->readByte(addr, 3);
-        printf("byte is %02X\n", n);
         if (ctx->isDebug()) ctx->log("[%04X] CP %s, (%s) = $%02X", ctx->reg.PC, ctx->registerDump(0b111), ctx->registerPairDump(0b10), n);
         ctx->setFlagBySubtract(ctx->reg.pair.A, n);
-        // ctx->setFlagXY(ctx->reg.pair.A);
         ctx->setFlagXY(n);
         ctx->reg.PC += 1;
         return 0;
@@ -4698,10 +4696,10 @@ class Z80
         hl += isIncHL ? 1 : -1;
         setHL(hl);
         setFlagZ(reg.pair.B == 0);
-        setFlagN(o & 0x80 ? true : false);                         // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
-        setFlagH(reg.pair.L + o > 0xFF);                           // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
-        setFlagC(isFlagH());                                       // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
-        setFlagPV(Parity(((reg.pair.L + o) & 0x07) ^ reg.pair.B)); // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
+        setFlagN(o & 0x80 ? true : false);  // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
+        setFlagH(reg.pair.L + o > 0xFF);    // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
+        setFlagC(isFlagH());                // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
+        setFlagPV(Parity(((reg.pair.L + o) & 0x07) ^ reg.pair.B));
         if (isRepeat && 0 != reg.pair.B) {
             consumeClock(5);
         } else {
