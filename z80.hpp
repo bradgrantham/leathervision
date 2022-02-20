@@ -4667,6 +4667,18 @@ class Z80
         return 0;
     }
 
+    inline int Parity(unsigned char v)
+    {
+        return ((v >> 7) ^
+            (v >> 6) ^
+            (v >> 5) ^
+            (v >> 4) ^
+            (v >> 3) ^
+            (v >> 2) ^
+            (v >> 1) ^
+            (v >> 0) ^ 0x01) & 0x01;
+    }
+
     // Load Output port (C) with location (HL), increment/decrement HL and decrement B
     inline int repeatOUT(bool isIncHL, bool isRepeat)
     {
@@ -4686,10 +4698,10 @@ class Z80
         hl += isIncHL ? 1 : -1;
         setHL(hl);
         setFlagZ(reg.pair.B == 0);
-        setFlagN(o & 0x80 ? true : false);                 // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
-        setFlagH(reg.pair.L + o > 0xFF);                   // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
-        setFlagC(isFlagH());                               // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
-        setFlagPV(((reg.pair.L + o) & 0x07) ^ reg.pair.B); // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
+        setFlagN(o & 0x80 ? true : false);                         // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
+        setFlagH(reg.pair.L + o > 0xFF);                           // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
+        setFlagC(isFlagH());                                       // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
+        setFlagPV(Parity(((reg.pair.L + o) & 0x07) ^ reg.pair.B)); // NOTE: ACTUAL FLAG CONDITION IS UNKNOWN
         if (isRepeat && 0 != reg.pair.B) {
             consumeClock(5);
         } else {
