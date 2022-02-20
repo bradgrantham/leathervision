@@ -4628,7 +4628,7 @@ class Z80
         setFlagN(i & 0x80 ? true : false);                                             // NOTE: undocumented
         setFlagC(0xFF < i + ((reg.pair.C + 1) & 0xFF));                                // NOTE: undocumented
         setFlagH(isFlagC());                                                           // NOTE: undocumented
-        setFlagPV(i + (((reg.pair.C + 1) & 0xFF) & 0x07) ^ reg.pair.B ? true : false); // NOTE: undocumented
+        setFlagPV(Parity(((i + ((reg.pair.C + 1) & 0xFF)) & 0x07) ^ reg.pair.B));
         if (isRepeat && 0 != reg.pair.B) {
             consumeClock(5);
         } else {
@@ -4667,14 +4667,11 @@ class Z80
 
     inline int Parity(unsigned char v)
     {
-        return ((v >> 7) ^
-            (v >> 6) ^
-            (v >> 5) ^
-            (v >> 4) ^
-            (v >> 3) ^
-            (v >> 2) ^
-            (v >> 1) ^
-            (v >> 0) ^ 0x01) & 0x01;
+        return
+	    ((v >> 7) ^ (v >> 6) ^ (v >> 5) ^ (v >> 4) ^
+             (v >> 3) ^ (v >> 2) ^ (v >> 1) ^ (v >> 0) ^
+             0x01)
+                                                         & 0x01;
     }
 
     // Load Output port (C) with location (HL), increment/decrement HL and decrement B
