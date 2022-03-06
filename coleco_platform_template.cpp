@@ -183,7 +183,7 @@ void get_input(void)
     }
 }
 
-void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
+void Start(uint32_t& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 {
     audioSampleRate = 11050;
     preferredAudioBufferSampleCount = 11050 / 100;

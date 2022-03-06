@@ -3,14 +3,16 @@
 #include <cstring>
 #include <cassert>
 #include <cerrno>
+
 #include <string>
 #include <chrono>
 #include <map>
+#include <set>
 #include <deque>
 #include <array>
-#include <chrono>
 #include <thread>
 #include <memory>
+
 #include <unistd.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -26,8 +28,9 @@
 #include "readhex.h"
 #endif /* PROVIDE_DEBUGGER */
 
-#include "emulator.h"
-#include "z80.hpp"
+#include "z80user.h"
+#include "z80emu.h"
+
 #include "coleco_platform.h"
 #include "tms9918.h"
 
@@ -35,180 +38,96 @@
 #include "rocinante.h"
 #endif
 
-// make ROM and RAM struct, create it and call it directly
-// can debugger be factored out into its own module?
-// improve naming and scope of readByte etc
-// move sleep_for into platform
-// move debug print into platform
+Z80_STATE z80state;
 
-namespace ColecoVisionEmulator
+bool Z80IsInNMI(Z80_STATE& z80state)
 {
+    return z80state.in_nmi;
+}
 
-struct RAMboard : board_base
+typedef long long clk_t;
+
+inline void write_rgb8_image_as_P6(uint8_t *imageRGB, int width, int height, FILE *fp)
 {
-    int base;
-    int length;
-    std::unique_ptr<unsigned char> bytes;
-    RAMboard(int base_, int length_) :
+    fprintf(fp, "P6 %d %d 255\n", width, height);
+    for(int row = 0; row < height; row++) {
+        for(int col = 0; col < width; col++) {
+            fwrite(imageRGB + (row * width + col) * 3, 3, 1, fp);
+        }
+    }
+}
+
+inline void write_rgba8_image_as_P6(uint8_t *imageRGBA, int width, int height, FILE *fp)
+{
+    fprintf(fp, "P6 %d %d 255\n", width, height);
+    for(int row = 0; row < height; row++) {
+        for(int col = 0; col < width; col++) {
+            fwrite(imageRGBA + (row * width + col) * 4, 3, 1, fp);
+        }
+    }
+}
+
+struct RAMboard
+{
+    uint16_t base;
+    uint16_t mirroredLength;
+    uint16_t addressMask;
+    std::vector<uint8_t> bytes;
+    RAMboard(uint16_t base_, uint16_t actualLength_, uint16_t mirroredLength_) :
+        base(base_),
+        mirroredLength(mirroredLength_),
+        addressMask(actualLength_ - 1),
+        bytes(actualLength_, 0)
+    { }
+};
+
+struct ROMboard
+{
+    uint16_t base;
+    uint16_t length;
+    std::vector<uint8_t> bytes;
+    ROMboard(uint16_t base_, uint16_t length_, uint8_t *bytes_) : 
         base(base_),
         length(length_),
-        bytes(new unsigned char[length])
+        bytes(bytes_, bytes_ + length)
     {
-        std::fill(bytes.get(), bytes.get() + length, 0);
-    }
-    bool read(int addr, unsigned char &data);
-    virtual bool memory_read(int addr, unsigned char &data)
-    {
-        return read(addr, data);
-    }
-    bool write(int addr, unsigned char data);
-    virtual bool memory_write(int addr, unsigned char data)
-    {
-        return write(addr, data);
     }
 };
 
-struct ROMboard : board_base
-{
-    int base;
-    int length;
-    std::unique_ptr<unsigned char> bytes;
-    ROMboard(int base_, int length_, unsigned char bytes_[]) : 
-        base(base_),
-        length(length_),
-        bytes(new unsigned char[length])
-    {
-        memcpy(bytes.get(), bytes_, length);
-    }
-    bool read(int addr, unsigned char &data);
-    virtual bool memory_read(int addr, unsigned char &data)
-    {
-        return read(addr, data);
-    }
-    bool write(int addr, unsigned char data);
-    virtual bool memory_write(int addr, unsigned char data)
-    {
-        return write(addr, data);
-    }
-};
-
-}; // namespace ColecoVisionEmulator
-
-ColecoVisionEmulator::RAMboard *RAM;
-ColecoVisionEmulator::ROMboard *CartROM;
-ColecoVisionEmulator::ROMboard *BIOSROM;
-std::vector<board_base*> boards;
-
-unsigned char readByte(void* arg, unsigned short addr)
-{
-#if 1
-    addr = addr & 0xFFFF;
-    if((addr >= CartROM->base) && (addr < CartROM->base + CartROM->length)) {
-        return CartROM->bytes.get()[addr - CartROM->base];
-    }
-    if((addr >= BIOSROM->base) && (addr < BIOSROM->base + BIOSROM->length)) {
-        return BIOSROM->bytes.get()[addr - BIOSROM->base];
-    }
-    if((addr >= RAM->base) && (addr < RAM->base + RAM->length)) {
-        return RAM->bytes.get()[addr - RAM->base];
-    }
-    return 0;
-#else
-    uint8_t b = 0x00;
-
-    if(CartROM->read(addr & 0xFFFF, b)) {
-        return b;
-    }
-    if(BIOSROM->read(addr & 0xFFFF, b)) {
-        return b;
-    }
-    RAM->read(addr & 0xFFFF, b);
-
-    return b;
-#endif
-}
-
-void writeByte(void* arg, unsigned short addr, unsigned char value)
-{
-    RAM->write(addr & 0xFFFF, value);
-}
-
-unsigned char inPort(void* arg, unsigned char port)
-{
-    /* last one wins. */
-    uint8_t b = 0x00;
-    bool accepted = false;
-    for(auto it = boards.begin(); it != boards.end(); it++) {
-        accepted |= (*it)->io_read(port & 0xff, b);
-    }
-    if(!accepted) {
-        printf("IN %d (0x%02X) was not handled!\n", port, port);
-    }
-    return b;
-}
-
-void outPort(void* arg, unsigned char port, unsigned char value)
-{
-    /* they all win. */
-    bool accepted = false;
-    for(auto it = boards.begin(); it != boards.end(); it++)
-        accepted |= (*it)->io_write(port & 0xff, value);
-    if(!accepted)
-        printf("OUT %d (0x%02X), 0x%02X was not handled!\n", port, port, value);
-}
-
-Z80 z80(readByte, writeByte, inPort, outPort, nullptr);
-
-void ResetZ80(Z80& z80)
-{
-    ::memset(&z80.reg, 0, sizeof(z80.reg));
-}
-
-bool Z80IsInNMI(Z80& z80)
-{
-    return z80.reg.IFF & 0b01000000;
-}
-
-namespace ColecoVisionEmulator
+namespace ColecovisionEmulator
 {
 
 bool quit_requested = false;
 bool enter_debugger = false; 
 
-typedef long long clk_t;
-
 constexpr clk_t machine_clock_rate = 3579545;
 constexpr uint32_t slice_frequency_times_1000 = 59940;
 constexpr uint32_t clocks_per_retrace = machine_clock_rate * 1000 / slice_frequency_times_1000;
 
-constexpr unsigned int DEBUG_NONE = 0x00;
-constexpr unsigned int DEBUG_ROM = 0x01;
-constexpr unsigned int DEBUG_RAM = 0x02;
-constexpr unsigned int DEBUG_IO = 0x04;
-constexpr unsigned int DEBUG_SCANOUT = 0x08;
-constexpr unsigned int DEBUG_VDP_OPERATIONS = 0x10;
-unsigned int debug = DEBUG_NONE;
+constexpr uint32_t DEBUG_NONE = 0x00;
+[[maybe_unused]] constexpr uint32_t DEBUG_ROM = 0x01; // Needs to be passed over to z80emu
+[[maybe_unused]] constexpr uint32_t DEBUG_RAM = 0x02; // Needs to be passed over to z80emu
+constexpr uint32_t DEBUG_IO = 0x04;
+constexpr uint32_t DEBUG_SCANOUT = 0x08;
+constexpr uint32_t DEBUG_VDP_OPERATIONS = 0x10;
+uint32_t debug = DEBUG_NONE;
 bool abort_on_exception = false;
 bool do_save_images_on_vdp_write = false;
 int dump_some_audio = 0;
 constexpr bool break_on_unknown_address = true;
 
-void print_state(const Z80 &z80)
+void print_state(Z80_STATE* state)
 {
-    printf("BC :%02X%02X  DE :%02X%02X  HL :%02X%02X  AF :%02X%02X  IX : %04X  IY :%04X  SP :%04X\n",
-        z80.reg.pair.B, z80.reg.pair.C, 
-        z80.reg.pair.D, z80.reg.pair.E, 
-        z80.reg.pair.H, z80.reg.pair.L, 
-        z80.reg.pair.A, z80.reg.pair.F, 
-        z80.reg.IX, z80.reg.IY,
-        z80.reg.SP);
-    printf("BC':%02X%02X  DE':%02X%02X  HL':%02X%02X  AF':%02X%02X\n",
-        z80.reg.back.B, z80.reg.back.C, 
-        z80.reg.back.D, z80.reg.back.E, 
-        z80.reg.back.H, z80.reg.back.L, 
-        z80.reg.back.A, z80.reg.back.F);
+    printf("BC :%04X  DE :%04X  HL :%04X  AF :%04X  IX : %04X  IY :%04X  SP :%04X\n",
+        state->registers.word[Z80_BC], state->registers.word[Z80_DE],
+        state->registers.word[Z80_HL], state->registers.word[Z80_AF],
+        state->registers.word[Z80_IX], state->registers.word[Z80_IY],
+        state->registers.word[Z80_SP]);
+    printf("BC':%04X  DE':%04X  HL':%04X  AF':%04X\n",
+        state->alternates[Z80_BC], state->alternates[Z80_DE],
+        state->alternates[Z80_HL], state->alternates[Z80_AF]);
     printf("PC :%04X\n",
-        z80.reg.PC);
+        state->pc);
 }
 
 typedef std::function<uint8_t (const uint8_t *registers, const uint8_t *memory)> tms9918_scanout_func;
@@ -217,37 +136,35 @@ typedef std::function<void (uint8_t *audiobuffer, size_t dist)> audio_flush_func
 struct SN76489A
 {
     bool debug{false};
-    unsigned int clock_rate{0};
+    uint32_t clock_rate{0};
 
-    int phase = 0;
-
-    unsigned char cmd_latched = 0;
-    static constexpr int CMD_BIT = 0x80;
-    static constexpr int CMD_REG_MASK = 0x70;
-    static constexpr int DATA_MASK = 0x0F;
+    uint8_t cmd_latched = 0;
+    static constexpr uint8_t CMD_BIT = 0x80;
+    static constexpr uint8_t CMD_REG_MASK = 0x70;
+    static constexpr uint8_t DATA_MASK = 0x0F;
     static constexpr int CMD_REG_SHIFT = 4;
     static constexpr int FREQ_HIGH_SHIFT = 4;
-    static constexpr int FREQ_HIGH_MASK = 0x3F;
-    static constexpr int CMD_NOISE_CONFIG_MASK = 0x04;
+    static constexpr uint8_t FREQ_HIGH_MASK = 0x3F;
+    static constexpr uint8_t CMD_NOISE_CONFIG_MASK = 0x04;
     static constexpr int CMD_NOISE_CONFIG_SHIFT = 2;
-    static constexpr int CMD_NOISE_FREQ_MASK = 0x03;
+    static constexpr uint8_t CMD_NOISE_FREQ_MASK = 0x03;
 
-    int sample_rate;
+    uint32_t sample_rate;
 
-    unsigned int tone_lengths[3] = {0, 0, 0};
-    unsigned int tone_attenuation[3] = {0, 0, 0};
+    uint32_t tone_lengths[3] = {0, 0, 0};
+    uint32_t tone_attenuation[3] = {0, 0, 0};
 
-    unsigned int noise_config{0};
-    unsigned int noise_length{0};
-    unsigned int noise_length_id{0};
-    unsigned int noise_attenuation{0};
+    uint32_t noise_config{0};
+    uint32_t noise_length{0};
+    uint32_t noise_length_id{0};
+    uint32_t noise_attenuation{0};
 
-    unsigned int tone_counters[3] = {0, 0, 0};
-    unsigned int tone_bit[3] = {0, 0, 0};
-    unsigned int noise_counter{0};
+    uint32_t tone_counters[3] = {0, 0, 0};
+    uint32_t tone_bit[3] = {0, 0, 0};
+    uint32_t noise_counter{0};
 
     uint16_t noise_register = 0x8000;
-    unsigned int noise_flipflop = 0;
+    uint32_t noise_flipflop = 0;
 
     clk_t previous_clock{0};
 
@@ -273,8 +190,7 @@ struct SN76489A
         noise_flipflop = 0;
     }
 
-
-    SN76489A(unsigned int clock_rate, int sample_rate, size_t audio_buffer_size) :
+    SN76489A(uint32_t clock_rate, uint32_t sample_rate, size_t audio_buffer_size) :
         clock_rate(clock_rate),
         sample_rate(sample_rate),
         audio_buffer_size(audio_buffer_size)
@@ -290,14 +206,14 @@ struct SN76489A
         previous_clock = 0;
     }
 
-    void write(unsigned char data)
+    void write(uint8_t data)
     {
         if(debug) printf("sound write 0x%02X\n", data);
         if(data & CMD_BIT) {
 
             cmd_latched = data;
 
-            unsigned int reg = (data & CMD_REG_MASK) >> CMD_REG_SHIFT;
+            uint32_t reg = (data & CMD_REG_MASK) >> CMD_REG_SHIFT;
 
             if(reg == 1 || reg == 3 || reg == 5) {
                 tone_attenuation[(reg - 1) / 2] = data & DATA_MASK;
@@ -320,7 +236,7 @@ struct SN76489A
 
         } else {
 
-            unsigned int reg = (cmd_latched & CMD_REG_MASK) >> CMD_REG_SHIFT;
+            uint32_t reg = (cmd_latched & CMD_REG_MASK) >> CMD_REG_SHIFT;
 
             if(reg == 0 || reg == 2 || reg == 4) {
                 tone_lengths[reg / 2] = 16 * (((data & FREQ_HIGH_MASK) << FREQ_HIGH_SHIFT) | (cmd_latched & DATA_MASK));
@@ -330,7 +246,7 @@ struct SN76489A
         }
     }
 
-    clk_t calc_flip_count(clk_t previous_clock, clk_t current_clock, unsigned int previous_counter, unsigned int length)
+    clk_t calc_flip_count(clk_t previous_clock, clk_t current_clock, uint32_t previous_counter, uint32_t length)
     {
         if(length < 1) { 
             return 0;
@@ -346,8 +262,8 @@ struct SN76489A
             noise_flipflop ^= 1;
 
             if(noise_flipflop) {
-                int noise_bit = noise_register & 0x1;
-                int new_bit;
+                uint8_t noise_bit = noise_register & 0x1;
+                uint8_t new_bit;
 
                 if(noise_config == 1) {
                     new_bit = (noise_register & 0x1) ^ ((noise_register & 0x8) >> 3);
@@ -389,7 +305,7 @@ struct SN76489A
         previous_clock = clk;
     }
 
-    static uint8_t scale_by_attenuation_flags(unsigned int att, uint8_t value)
+    static uint8_t scale_by_attenuation_flags(uint32_t att, uint8_t value)
     {
         const static uint16_t att_table[] = {
             256, 203, 161, 128, 101, 80, 64, 51, 40, 32, 25, 20, 16, 12, 10, 0,
@@ -438,41 +354,21 @@ struct SN76489A
     }
 };
 
-inline void write_rgb8_image_as_P6(uint8_t *imageRGB, int width, int height, FILE *fp)
-{
-    fprintf(fp, "P6 %d %d 255\n", width, height);
-    for(int row = 0; row < height; row++) {
-        for(int col = 0; col < width; col++) {
-            fwrite(imageRGB + (row * width + col) * 3, 3, 1, fp);
-        }
-    }
-}
-
-inline void write_rgba8_image_as_P6(uint8_t *imageRGBA, int width, int height, FILE *fp)
-{
-    fprintf(fp, "P6 %d %d 255\n", width, height);
-    for(int row = 0; row < height; row++) {
-        for(int col = 0; col < width; col++) {
-            fwrite(imageRGBA + (row * width + col) * 4, 3, 1, fp);
-        }
-    }
-}
-
 struct TMS9918AEmulator
 {
     bool cmd_started_in_nmi{false};
-    int frame_number{0};
-    int write_number{0};
+    uint32_t frame_number{0};
+    uint32_t write_number{0};
 
-    static constexpr int MEMORY_SIZE = 16384;
+    static constexpr uint16_t MEMORY_SIZE = 16384;
     std::array<uint8_t, MEMORY_SIZE> memory{};
     std::array<uint8_t, 8> registers{};
     uint8_t status_register{0};
 
     enum {CMD_PHASE_FIRST, CMD_PHASE_SECOND} cmd_phase = CMD_PHASE_FIRST;
-    unsigned char cmd_data = 0x0;
-    unsigned int read_address = 0x0;
-    unsigned int write_address = 0x0;
+    uint8_t cmd_data = 0x0;
+    uint16_t read_address = 0x0;
+    uint16_t write_address = 0x0;
 
     TMS9918AEmulator()
     {
@@ -490,11 +386,10 @@ struct TMS9918AEmulator
         status_register |= VDP_STATUS_F_BIT;
     }
 
-
-    void write(int cmd, unsigned char data)
+    void write(uint8_t cmd, uint8_t data)
     {
         using namespace TMS9918A;
-        if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, Z80IsInNMI(z80) ? 1 : 0);
+        if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, Z80IsInNMI(z80state) ? 1 : 0);
         if(do_save_images_on_vdp_write) { /* debug */
 
             uint8_t framebuffer[SCREEN_X * SCREEN_Y * 3];
@@ -518,11 +413,11 @@ struct TMS9918AEmulator
                 if(debug & DEBUG_VDP_OPERATIONS) printf("VDP command write, first byte 0x%02X\n", data);
                 cmd_data = data;
                 cmd_phase = CMD_PHASE_SECOND;
-                cmd_started_in_nmi = Z80IsInNMI(z80);
+                cmd_started_in_nmi = Z80IsInNMI(z80state);
 
             } else {
 
-                if(Z80IsInNMI(z80) != cmd_started_in_nmi) {
+                if(Z80IsInNMI(z80state) != cmd_started_in_nmi) {
                     if(cmd_started_in_nmi) {
                         printf("VDP cmd was started in NMI but finished outside NMI; likely corruption\n");
                     } else {
@@ -531,9 +426,9 @@ struct TMS9918AEmulator
                     if(abort_on_exception) abort();
                 }
 
-                int cmd = data & CMD_MASK;
+                uint8_t cmd = data & CMD_MASK;
                 if(cmd == CMD_SET_REGISTER) {
-                    int which_register = data & REG_A0_A5_MASK;
+                    uint8_t which_register = data & REG_A0_A5_MASK;
                     if(debug & DEBUG_VDP_OPERATIONS) printf("VDP command write to register 0x%02X, value 0x%02X\n", which_register, cmd_data);
                     registers[which_register] = cmd_data;
                 } else if(cmd == CMD_SET_WRITE_ADDRESS) {
@@ -570,12 +465,12 @@ struct TMS9918AEmulator
 
     }
 
-    uint8_t read(int cmd)
+    uint8_t read(uint8_t cmd)
     {
         using namespace TMS9918A;
         if(cmd) {
             if(cmd_phase == CMD_PHASE_SECOND) {
-                if(Z80IsInNMI(z80)) {
+                if(Z80IsInNMI(z80state)) {
                     printf("cmd_phase was reset in ISR\n");
                 } else {
                     printf("cmd_phase was reset outside ISR\n");
@@ -613,31 +508,36 @@ struct TMS9918AEmulator
 
 typedef std::function<uint8_t (int index, bool JoystickNotKeypad)> GetControllerStateFunc;
 
-struct ColecoHW : board_base
+struct ColecoHW
 {
     TMS9918AEmulator vdp;
     SN76489A sound;
 
     bool reading_joystick = true;
 
-    static constexpr int VDP_DATA_PORT = 0xBE;
-    static constexpr int VDP_CMD_PORT = 0xBF;
+    static constexpr uint8_t VDP_DATA_PORT = 0xBE;
+    static constexpr uint8_t VDP_CMD_PORT = 0xBF;
 
-    static constexpr int SN76489A_PORT = 0xFF;
+    static constexpr uint8_t SN76489A_PORT = 0xFF;
 
-    static constexpr int SWITCH_TO_KEYPAD_PORT = 0x80;
-    static constexpr int SWITCH_TO_JOYSTICK_PORT = 0xC0;
-    static constexpr int CONTROLLER1_PORT = 0xFC;
-    static constexpr int CONTROLLER2_PORT = 0xFF;
+    static constexpr uint8_t SWITCH_TO_KEYPAD_PORT = 0x80;
+    static constexpr uint8_t SWITCH_TO_JOYSTICK_PORT = 0xC0;
+    static constexpr uint8_t CONTROLLER1_PORT = 0xFC;
+    static constexpr uint8_t CONTROLLER2_PORT = 0xFF;
     GetControllerStateFunc get_controller_state;
 
-    ColecoHW(int sample_rate, size_t audio_buffer_size, GetControllerStateFunc get_controller_state) :
+    // XXX eventually template on a bool which determines whether
+    // these are populated in io_read and io_write
+    std::set<uint16_t> io_reads;
+    std::map<uint16_t, uint8_t> io_writes;
+
+    ColecoHW(uint32_t sample_rate, size_t audio_buffer_size, GetControllerStateFunc get_controller_state) :
         sound(machine_clock_rate, sample_rate, audio_buffer_size),
         get_controller_state(get_controller_state)
     {
     }
 
-    virtual bool io_write(int addr, unsigned char data)
+    virtual bool io_write(uint8_t addr, uint8_t data)
     {
         if(false) {
             if(addr == ColecoHW::VDP_CMD_PORT) {
@@ -696,7 +596,7 @@ struct ColecoHW : board_base
         return false;
     }
 
-    virtual bool io_read(int addr, unsigned char &data)
+    virtual bool io_read(uint8_t addr, uint8_t &data)
     {
         if(false) {
             if(addr == ColecoHW::VDP_CMD_PORT) {
@@ -728,7 +628,7 @@ struct ColecoHW : board_base
         }
 
         if((addr >= 0xE0) && (addr <= 0xFF)) {
-            int index = (addr & 0x02) >> 1;
+            uint8_t index = (addr & 0x02) >> 1;
             data = get_controller_state(index, reading_joystick);
             if(debug & DEBUG_IO) printf("read controller%d port 0x%02X, read 0x%02X\n", index + 1, addr, data);
 #ifdef PROVIDE_DEBUGGER
@@ -752,12 +652,6 @@ struct ColecoHW : board_base
         sound.reset();
     }
 
-    virtual void init(void)
-    {
-    }
-    virtual void pause(void) {};
-    virtual void resume(void) {};
-
     virtual bool nmi_required()
     {
         return vdp.nmi_required();
@@ -769,56 +663,49 @@ struct ColecoHW : board_base
     }
 };
 
-bool RAMboard::read(int addr, unsigned char &data)
+}; // namespace ColecovisionEmulator
+
+uint8_t cv_in_byte(void* ctx_, uint16_t address16)
 {
-    if(addr >= base && addr < base + length) {
-        data = bytes.get()[addr - base];
-        if(debug & DEBUG_RAM) printf("read 0x%04X -> 0x%02X from RAM\n", addr, data);
-        return true;
+    auto *context = reinterpret_cast<ColecovisionContext*>(ctx_);
+    auto* cvhw = reinterpret_cast<ColecovisionEmulator::ColecoHW*>(context->cvhw);
+
+    uint8_t b = 0;
+    bool served = cvhw->io_read(address16 & 0xff, b);
+    if(!served) {
+        printf("IN %d (0x%02X) was not handled!\n", address16, address16);
     }
-    return false;
+    return b;
 }
 
-bool RAMboard::write(int addr, unsigned char data)
+void cv_out_byte(void* ctx_, uint16_t address16, uint8_t value)
 {
-    if(addr >= base && addr < base + length) {
-        bytes.get()[addr - base] = data;
-        if(debug & DEBUG_RAM) printf("wrote 0x%02X to RAM 0x%04X\n", data, addr);
-        return true;
-    }
-    return false;
-}
+    auto *context = reinterpret_cast<ColecovisionContext*>(ctx_);
+    auto* cvhw = reinterpret_cast<ColecovisionEmulator::ColecoHW*>(context->cvhw);
 
-bool ROMboard::read(int addr, unsigned char &data)
-{
-    if(addr >= base && addr < base + length) {
-        data = bytes.get()[addr - base];
-        if(debug & DEBUG_ROM) printf("read 0x%04X -> 0x%02X from ROM\n", addr, data);
-        return true;
+    bool accepted = cvhw->io_write(address16 & 0xff, value);
+    if(!accepted) {
+        printf("OUT %d (0x%02X), 0x%02X was not handled!\n", address16, address16, value);
     }
-    return false;
-}
-
-bool ROMboard::write(int addr, unsigned char data)
-{
-    if(addr >= base && addr < base + length) {
-        if(debug & DEBUG_ROM) printf("attempted write 0x%02X to ROM 0x%04X ignored\n", data, addr);
-    }
-    return false;
 }
 
 #include "bg80d.h"
 
+struct reader_context
+{
+    uint16_t address;
+    ColecovisionContext* colecovision_context;
+};
+
 uint8_t reader(void *p)
 {
-    int& address = *(int*)p;
-    unsigned char data;
-    data = readByte(nullptr, address);
-    address++;
+    auto* context = reinterpret_cast<reader_context*>(p);
+    uint8_t data = cv_read_byte(context->colecovision_context, context->address);
+    context->address++;
     return data;
 }
 
-int disassemble(int address, std::function<const std::string& (int address, int& symbol_offset)> get_symbol, int bytecount)
+int disassemble(uint16_t address, std::function<const std::string& (uint16_t address, uint16_t& symbol_offset)> get_symbol, int bytecount, ColecovisionContext* colecovision_context)
 {
     int total_bytes = 0;
 
@@ -826,23 +713,22 @@ int disassemble(int address, std::function<const std::string& (int address, int&
 
     while(bytecount > 0) {
 
-        int address_was = address;
-
-        int symbol_offset;
+        uint16_t symbol_offset;
         const std::string& sym = get_symbol(address, symbol_offset);
 
-        bg80d::opcode_spec_t *opcode = bg80d::decode(reader, &address, address);
+        reader_context context{.address = address, .colecovision_context = colecovision_context};
+        bg80d::opcode_spec_t *opcode = bg80d::decode(reader, &context, address);
         if(opcode == 0) {
             break;
         }
 
-        printf("%04X %s+0x%04X%*s", address_was, sym.c_str(), symbol_offset, 16 - (int)sym.size() - 5, "");
+        printf("%04X %s+0x%04X%*s", address, sym.c_str(), symbol_offset, 16 - (int)sym.size() - 5, "");
 
-        int opcode_length = (opcode->pc_after - address_was);
+        int opcode_length = (opcode->pc_after - address);
         int opcode_bytes_pad = 1 + 3 + 3 + 3 - opcode_length * 3;
         for(int i = 0; i < opcode_length; i++) {
-            unsigned char byte;
-            byte = readByte(nullptr, address_was + i);
+            uint8_t byte;
+            byte = cv_read_byte(colecovision_context, address + i);
             printf("%.2hhX ", byte);
         }
 
@@ -856,10 +742,10 @@ int disassemble(int address, std::function<const std::string& (int address, int&
 
 #else
 
-    int symbol_offset;
+    uint16_t symbol_offset;
     uint8_t buffer[3];
     for(int i = 0; i < 3; i++) {
-        buffer[i] = readByte(nullptr, address + i);
+        buffer[i] = cv_read_byte(colecovision_context, address + i);
     }
     const std::string& sym = get_symbol(address, symbol_offset);
     printf("%04X %s+0x%04X%*s : %02X %02X %02X\n", address, sym.c_str(), symbol_offset, 16 - (int)sym.size() - 5, "", buffer[0], buffer[1], buffer[2]);
@@ -874,17 +760,17 @@ int disassemble(int address, std::function<const std::string& (int address, int&
 struct BreakPoint
 {
     enum Type {INSTRUCTION, DATA} type;
-    int address;
-    unsigned char old_value;
+    uint16_t address;
+    uint8_t old_value;
     bool enabled;
-    BreakPoint(int address_, unsigned char old_value_) :
+    BreakPoint(uint16_t address_, uint8_t old_value_) :
         type(DATA),
         address(address_),
         old_value(old_value_),
         enabled(true)
     {
     }
-    BreakPoint(int address_) :
+    BreakPoint(uint16_t address_) :
         type(INSTRUCTION),
         address(address_),
         old_value(0),
@@ -895,13 +781,13 @@ struct BreakPoint
     void disable() { enabled = false; }
 };
 
-void clear_breakpoints(std::vector<BreakPoint>& breakpoints, Z80 &z80)
+void clear_breakpoints(std::vector<BreakPoint>& breakpoints, Z80_STATE* state, ColecovisionContext* colecovision_context)
 {
     for(auto i = breakpoints.begin(); i != breakpoints.end(); i++) {
         BreakPoint& bp = (*i);
         switch(bp.type) {
             case BreakPoint::DATA:
-                bp.old_value = readByte(nullptr, bp.address);
+                bp.old_value = cv_read_byte(colecovision_context, bp.address);
                 break;
             case BreakPoint::INSTRUCTION:
                 break;
@@ -909,21 +795,21 @@ void clear_breakpoints(std::vector<BreakPoint>& breakpoints, Z80 &z80)
     }
 }
 
-bool is_breakpoint_triggered(std::vector<BreakPoint>& breakpoints, Z80 &z80, int& which)
+bool is_breakpoint_triggered(std::vector<BreakPoint>& breakpoints, Z80_STATE* state, int& which, ColecovisionContext* colecovision_context)
 {
     for(auto i = breakpoints.begin(); i != breakpoints.end(); i++) {
         BreakPoint& bp = (*i);
         if(bp.enabled)
             switch(bp.type) {
                 case BreakPoint::INSTRUCTION:
-                    if(z80.reg.PC == bp.address) {
+                    if(state->pc == bp.address) {
                         which = i - breakpoints.begin();
                         return true;
                     }
                     break;
                 case BreakPoint::DATA:
-                    unsigned char data;
-                    data = readByte(nullptr, bp.address);
+                    uint8_t data;
+                    data = cv_read_byte(colecovision_context, bp.address);
                     if(data != bp.old_value) {
                         which = i - breakpoints.begin();
                         return true;
@@ -936,17 +822,18 @@ bool is_breakpoint_triggered(std::vector<BreakPoint>& breakpoints, Z80 &z80, int
 
 struct Debugger
 {
-    ColecoHW* colecohw{nullptr};
+    ColecovisionEmulator::ColecoHW* colecohw{nullptr};
+    ColecovisionContext *colecovision_context;
     clk_t& clk;
     std::vector<BreakPoint> breakpoints;
-    std::set<int> io_watch;
+    std::unordered_set<uint16_t> io_watch;
     std::string address_to_symbol[65536]; // XXX excessive memory?
-    std::map<std::string, int> symbol_to_address; // XXX excessive memory?
+    std::unordered_map<std::string, uint16_t> symbol_to_address; // XXX excessive memory?
     sig_t previous_sigint;
     bool state_may_have_changed;
     bool last_was_step;
     bool last_was_jump;
-    const std::string& get_symbol(int address, int& offset)
+    const std::string& get_symbol(uint16_t address, uint16_t& offset)
     {
         static std::string no_symbol = "";
         offset = 0;
@@ -998,25 +885,26 @@ struct Debugger
         last_was_step = false;
         last_was_jump = false;
     }
-    Debugger(ColecoHW *colecohw, clk_t& clk) :
+    Debugger(ColecovisionEmulator::ColecoHW *colecohw, ColecovisionContext *colecovision_context, clk_t& clk) :
         colecohw(colecohw),
+        colecovision_context(colecovision_context),
         clk(clk)
     {
         ctor();
     }
-    bool process_line(std::vector<board_base*>& boards, Z80 &z80, char *line);
-    bool process_command(std::vector<board_base*>& boards, Z80 &z80, char *command);
-    void go(FILE *fp, std::vector<board_base*>& boards, Z80 &z80);
-    bool should_debug(std::vector<board_base*>& boards, Z80 &z80);
+    bool process_line(Z80_STATE* state, char *line);
+    bool process_command(Z80_STATE* state, char *command);
+    void go(FILE *fp, Z80_STATE* state);
+    bool should_debug(Z80_STATE* state);
 };
 
 
 // XXX make this pointers-to-members
-typedef bool (*command_handler)(Debugger* d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv);
+typedef bool (*command_handler)(Debugger* d, Z80_STATE* state, int argc, char **argv);
 
-std::map<std::string, command_handler> command_handlers;
+std::unordered_map<std::string, command_handler> command_handlers;
 
-bool lookup_or_parse(std::map<std::string, int>& symbol_to_address, char *s, int& a)
+bool lookup_or_parse(std::unordered_map<std::string, uint16_t>& symbol_to_address, char *s, uint16_t& a)
 {
     auto found = symbol_to_address.find(s);
     if(found != symbol_to_address.end()) {
@@ -1032,16 +920,24 @@ bool lookup_or_parse(std::map<std::string, int>& symbol_to_address, char *s, int
     return true;
 }
 
-void store_memory(void *arg, int address, unsigned char p)
+struct storer_context
 {
-    int *info = (int*)arg;
-    writeByte(nullptr, address, p);
-    info[0] = std::min(info[0], address);
-    info[1] = std::max(info[1], address);
-    info[2]++; // XXX Could be overwrites...
+    uint16_t min_address;
+    uint16_t max_address;
+    int write_count;
+    ColecovisionContext* colecovision_context;
+};
+
+void store_memory(void *arg, uint16_t address, uint8_t p)
+{
+    auto* context = reinterpret_cast<storer_context*>(arg);
+    cv_write_byte(context->colecovision_context, address, p);
+    context->min_address = std::min(context->min_address, address);
+    context->max_address = std::max(context->max_address, address);
+    context->write_count++; // XXX Could be overwrites...
 }
 
-bool debugger_readhex(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_readhex(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "readhex: expected filename argument\n");
@@ -1052,32 +948,34 @@ bool debugger_readhex(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, i
         fprintf(stderr, "failed to open %s for reading\n", argv[1]);
         return false;
     }
-    int info[3] = {0xffff, 0, 0};
-    int success = read_hex(fp, store_memory, info, 0);
+
+    storer_context context{.min_address = 0xFFFF, .max_address = 0, .write_count = 0, .colecovision_context = d->colecovision_context};
+
+    int success = read_hex(fp, store_memory, &context, 0);
     if (!success) {
         fprintf(stderr, "error reading hex file %s\n", argv[1]);
         fclose(fp);
         return false;
     }
     printf("Read %d (0x%04X) bytes from %s into 0x%04X..0x%04X (might be sparse)\n",
-        info[2], info[2], argv[1], info[0], info[1]);
+        context->write_count, context->write_count, argv[1], context->min_address, context->max_address);
     fclose(fp);
     return false;
 }
 
-bool debugger_readbin(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_readbin(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 3) {
         fprintf(stderr, "readbin: expected filename and address\n");
         return false;
     }
-    unsigned char buffer[128];
+    uint8_t buffer[128];
 
-    int address;
+    uint16_t address;
     if(!lookup_or_parse(d->symbol_to_address, argv[2], address))
         return false;
 
-    int a = address;
+    uint16_t a = address;
     FILE *fp = fopen(argv[1], "rb");
     if(fp == NULL) {
         fprintf(stderr, "failed to open %s for reading\n", argv[1]);
@@ -1085,8 +983,9 @@ bool debugger_readbin(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, i
     }
     size_t size;
     while((size = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
-        for(size_t i = 0; i <= size; i++, a++)
-            writeByte(nullptr, a, buffer[i]);
+        for(size_t i = 0; i <= size; i++, a++) {
+            cv_write_byte(d->colecovision_context, a, buffer[i]);
+        }
     }
     printf("Read %d (0x%04X) bytes from %s into 0x%04X..0x%04X\n",
         a - address, a - address, argv[1], address, a - 1);
@@ -1094,9 +993,9 @@ bool debugger_readbin(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, i
     return false;
 }
 
-void dump_buffer_hex(int indent, int actual_address, unsigned char *data, int size)
+void dump_buffer_hex(int indent, uint16_t actual_address, uint8_t *data, int size)
 {
-    int address = 0;
+    uint16_t address = 0;
     int screen_lines = 0;
 
     while(size > 0) {
@@ -1111,13 +1010,15 @@ void dump_buffer_hex(int indent, int actual_address, unsigned char *data, int si
         int howmany = std::min(size, 16);
 
         printf("%*s0x%04X: ", indent, "", actual_address + address);
-        for(int i = 0; i < howmany; i++)
+        for(int i = 0; i < howmany; i++) {
             printf("%02X ", data[i]);
+        }
         printf("\n");
 
         printf("%*s        ", indent, "");
-        for(int i = 0; i < howmany; i++)
+        for(int i = 0; i < howmany; i++) {
             printf(" %c ", isprint(data[i]) ? data[i] : '.');
+        }
         printf("\n");
         screen_lines++;
 
@@ -1127,62 +1028,60 @@ void dump_buffer_hex(int indent, int actual_address, unsigned char *data, int si
     }
 }
 
-void disassemble_instructions(int address, Debugger *d, int insncount)
+void disassemble_instructions(uint16_t address, Debugger *d, int insncount)
 {
     for(int i = 0; i < insncount; i++) {
-	address += disassemble(address, [d](int address, int& symbol_offset) -> const std::string& {return d->get_symbol(address, symbol_offset);}, 1);
+	address += disassemble(address, [d](uint16_t address, uint16_t& symbol_offset) -> const std::string& {return d->get_symbol(address, symbol_offset);}, 1, d->colecovision_context);
     }
 }
 
-bool debugger_dis(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_dis(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 3) {
         fprintf(stderr, "dis: expected address and count\n");
         return false;
     }
-    char *endptr;
-
-    int address;
+    uint16_t address;
     if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
     }
 
+    char *endptr;
     int count = strtol(argv[2], &endptr, 0);
     if(*endptr != '\0') {
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[2]);
         return false;
     }
-    disassemble_instructions(address, d, count);
+    disassemble_instructions(address, d, count, d->colecovision_context);
     return false;
 }
 
-bool debugger_dump(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_dump(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 3) {
         fprintf(stderr, "dump: expected address and length\n");
         return false;
     }
-    char *endptr;
-
-    int address;
+    uint16_t address;
     if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
     }
 
+    char *endptr;
     int length = strtol(argv[2], &endptr, 0);
     if(*endptr != '\0') {
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[2]);
         return false;
     }
-    unsigned char buffer[65536];
+    uint8_t buffer[65536];
     for(int i = 0; i < length; i++) {
-        buffer[i] = readByte(nullptr, address + i);
+        buffer[i] = cv_read_byte(d->colecovision_context, address + i);
     }
     dump_buffer_hex(4, address, buffer, length);
     return false;
 }
 
-bool debugger_symbols(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_symbols(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "symbols: expected filename argument\n");
@@ -1192,37 +1091,36 @@ bool debugger_symbols(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, i
     return false;
 }
 
-bool debugger_fill(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_fill(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 4) {
         fprintf(stderr, "fill: expected address, length, and value\n");
         return false;
     }
-    char *endptr;
-
-    int address;
+    uint16_t address;
     if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
     }
 
+    char *endptr;
     int length = strtol(argv[2], &endptr, 0);
     if(*endptr != '\0') {
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[2]);
         return false;
     }
-    int value = strtol(argv[3], &endptr, 0);
+    uint8_t value = strtol(argv[3], &endptr, 0);
     if(*endptr != '\0') {
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[3]);
         return false;
     }
     printf("fill %d for %d with %d\n", address, length, value);
     for(int i = 0; i < length; i++) {
-        writeByte(nullptr, address + i, value);
+        cv_write_byte(d->colecovision_context, address + i, value);
     }
     return false;
 }
 
-bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_image(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     using namespace TMS9918A;
     FILE *fp = fopen("output.ppm", "wb");
@@ -1230,7 +1128,7 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int
     auto& vdp = d->colecohw->vdp;
 
     // XXX
-    unsigned char framebuffer[SCREEN_X * SCREEN_Y * 3];
+    uint8_t framebuffer[SCREEN_X * SCREEN_Y * 3];
     auto pixel_setter = [&framebuffer](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
         uint8_t *pixel = framebuffer + 3 * (x + y * SCREEN_X) + 0;
         SetColor(pixel, r, g, b);
@@ -1258,46 +1156,45 @@ bool debugger_image(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int
     return false;
 }
 
-bool debugger_in(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_in(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "out: expected port number\n");
         return false;
     }
     char *endptr;
-    int port = strtol(argv[1], &endptr, 0);
+    uint8_t port = strtol(argv[1], &endptr, 0);
     if(*endptr != '\0') {
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[1]);
         return false;
     }
-    unsigned char byte;
-    byte = inPort(nullptr, port);
+    uint8_t byte = cv_input_byte(d->colecovision_context, port, byte);
     printf("received byte 0x%02X from port %d (0x%02X)\n", byte, port, port);
     return false;
 }
 
-bool debugger_out(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_out(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 3) {
         fprintf(stderr, "out: expected port number and byte\n");
         return false;
     }
     char *endptr;
-    int port = strtol(argv[1], &endptr, 0);
+    uint8_t port = strtol(argv[1], &endptr, 0);
     if(*endptr != '\0') {
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[1]);
         return false;
     }
-    int value = strtol(argv[2], &endptr, 0);
+    uint8_t value = strtol(argv[2], &endptr, 0);
     if(*endptr != '\0') {
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[2]);
         return false;
     }
-    outPort(nullptr, port, value);
+    cv_output_byte(d->colecovision_context, port, value);
     return false;
 }
 
-bool debugger_help(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_help(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     printf("Debugger commands:\n");
     printf("    go                    - continue normally\n");
@@ -1325,7 +1222,7 @@ bool debugger_help(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int 
     return false;
 }
 
-bool debugger_continue(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_continue(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     d->state_may_have_changed = true;
     return true;
@@ -1333,7 +1230,7 @@ bool debugger_continue(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, 
 
 bool brads_zero_check = true;
 
-bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_step(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     int count = 1;
     bool verbose = false;
@@ -1352,14 +1249,14 @@ bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int 
         }
     }
     for(int i = 0; i < count; i++) {
-        d->clk += z80.execute(1);
+        d->clk += Z80Emulate(state, 1, d->colecovision_context);
         if(i < count - 1) {
             if(verbose) {
-                print_state(z80);
-                disassemble(z80.reg.PC, [&d](int address, int& symbol_offset) -> const std::string& {return d->get_symbol(address, symbol_offset);}, 1);
+                print_state(state);
+                disassemble(state->pc, d, 1, d->colecovision_context);
             }
         }
-        if(d->should_debug(boards, z80)) {
+        if(d->should_debug(state)) {
             break;
         }
     }
@@ -1369,61 +1266,54 @@ bool debugger_step(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int 
     return false;
 }
 
-bool debugger_jump(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_jump(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "jump: expected address\n");
         return false;
     }
 
-    int address;
+    uint16_t address;
     if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
     }
-    z80.reg.PC = address;
-
-    char *endptr;
-    z80.reg.PC = strtol(argv[1], &endptr, 0);
-    if(*endptr != '\0') {
-        printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[1]);
-        return false;
-    }
+    state->pc = address;
 
     d->state_may_have_changed = true;
     d->last_was_jump = true;
     return true;
 }
 
-bool debugger_pc(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_pc(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
-        fprintf(stderr, "jump: expected address\n");
+        fprintf(stderr, "pc: expected address\n");
         return false;
     }
-    char *endptr;
-    z80.reg.PC = strtol(argv[1], &endptr, 0);
-    if(*endptr != '\0') {
-        printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[1]);
+    uint16_t address;
+    if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
     }
+    state->pc = address;
+
     d->state_may_have_changed = true;
     return false;
 }
 
-bool debugger_quit(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_quit(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     quit_requested = true;
     return true;
 }
 
-bool debugger_break(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_break(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "break: expected address\n");
         return false;
     }
 
-    int address;
+    uint16_t address;
     if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
     }
@@ -1432,32 +1322,32 @@ bool debugger_break(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int
     return false;
 }
 
-bool debugger_watch(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_watch(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "watch: expected address\n");
         return false;
     }
 
-    int address;
+    uint16_t address;
     if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
     }
 
-    unsigned char old_value;
-    old_value = readByte(nullptr, address);
+    uint8_t old_value;
+    old_value = cv_read_byte(d->colecovision_context, address);
     d->breakpoints.push_back(BreakPoint(address, old_value));
     return false;
 }
 
-bool debugger_watchio(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_watchio(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "watchio: expected address\n");
         return false;
     }
 
-    int address;
+    uint16_t address;
     if(!lookup_or_parse(d->symbol_to_address, argv[1], address)) {
         return false;
     }
@@ -1472,7 +1362,7 @@ bool debugger_watchio(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, i
     return false;
 }
 
-bool debugger_disable(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_disable(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "break: expected address\n");
@@ -1492,7 +1382,7 @@ bool debugger_disable(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, i
     return false;
 }
 
-bool debugger_enable(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_enable(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "break: expected address\n");
@@ -1512,7 +1402,7 @@ bool debugger_enable(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, in
     return false;
 }
 
-bool debugger_remove(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_remove(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     if(argc != 2) {
         fprintf(stderr, "break: expected address\n");
@@ -1532,7 +1422,7 @@ bool debugger_remove(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, in
     return false;
 }
 
-bool debugger_list(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int argc, char **argv)
+bool debugger_list(Debugger *d, Z80_STATE* state, int argc, char **argv)
 {
     printf("breakpoints:\n");
     for(auto i = d->breakpoints.begin(); i != d->breakpoints.end(); i++) {
@@ -1541,7 +1431,7 @@ bool debugger_list(Debugger *d, std::vector<board_base*>& boards, Z80 &z80, int 
         printf("%s ", bp.enabled ? " enabled" : "disabled");
         printf("%s ", (bp.type == BreakPoint::INSTRUCTION) ? " ins" : "data");
         if(bp.type == BreakPoint::INSTRUCTION) {
-            int symbol_offset;
+            uint16_t symbol_offset;
             const std::string& sym = d->get_symbol(bp.address, symbol_offset);
             printf("break at 0x%04x (%s+%d)\n", bp.address, sym.c_str(), symbol_offset);
         } else {
@@ -1581,7 +1471,7 @@ void populate_command_handlers()
         // reset
 }
 
-bool Debugger::process_command(std::vector<board_base*>& boards, Z80 &z80, char *command)
+bool Debugger::process_command(Z80_STATE* state, char *command)
 {
     // process commands
     char **ap, *argv[10];
@@ -1597,7 +1487,7 @@ bool Debugger::process_command(std::vector<board_base*>& boards, Z80 &z80, char 
 
     if(argc == 0) {
         if(last_was_step) {
-            return debugger_step(this, boards, z80, argc, argv);
+            return debugger_step(this, state, argc, argv);
         } else {
             return false;
         }
@@ -1610,15 +1500,15 @@ bool Debugger::process_command(std::vector<board_base*>& boards, Z80 &z80, char 
         return false;
     }
     
-    return (*it).second(this, boards, z80, argc, argv);
+    return (*it).second(this, state, argc, argv);
 }
 
-bool Debugger::process_line(std::vector<board_base*>& boards, Z80 &z80, char *line)
+bool Debugger::process_line(Z80_STATE* state, char *line)
 {
     char *command;
 
     while((command = strsep(&line, ";")) != NULL) {
-        bool run = process_command(boards, z80, command);
+        bool run = process_command(state, command);
         if(run) {
             return true;
         }
@@ -1626,27 +1516,31 @@ bool Debugger::process_line(std::vector<board_base*>& boards, Z80 &z80, char *li
     return false;
 }
 
-bool Debugger::should_debug(std::vector<board_base*>& boards, Z80 &z80)
+bool Debugger::should_debug(Z80_STATE* state)
 {
     int which;
-    for(auto *b : boards) {
-        auto io_reads_tmp = b->io_reads;
-        auto io_writes_tmp = b->io_writes;
-        b->io_reads.clear();
-        b->io_writes.clear();
-        for(auto io_read: io_reads_tmp) {
-            if(io_watch.count(io_read) > 0) {
-                return true;
-            }
-        }
-        for(auto [io_write_address, io_write_value]: io_writes_tmp) {
-            if(io_watch.count(io_write_address) > 0) {
-                return true;
-            }
+
+    // XXX move?
+    auto io_reads_tmp = d->colecohw->io_reads;
+    auto io_writes_tmp = d->colecohw->io_writes;
+    d->colecohw->io_reads.clear();
+    d->colecohw->io_writes.clear();
+
+    for(auto io_read: io_reads_tmp) {
+        if(io_watch.count(io_read) > 0) {
+            return true;
         }
     }
-    bool should = !last_was_jump && is_breakpoint_triggered(breakpoints, z80, which);
+    for(auto [io_write_address, io_write_value]: io_writes_tmp) {
+        if(io_watch.count(io_write_address) > 0) {
+            return true;
+        }
+    }
+
+    bool should = !last_was_jump && is_breakpoint_triggered(breakpoints, state, which, d->colecovision_context);
+
     last_was_jump = false;
+
     return should;
 }
 
@@ -1655,36 +1549,33 @@ void mark_enter_debugger(int signal)
     enter_debugger = true;
 }
 
-void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80 &z80)
+void Debugger::go(FILE *fp, Z80_STATE* state)
 {
     signal(SIGINT, previous_sigint);
-    for(auto b = boards.begin(); b != boards.end(); b++) {
-        (*b)->pause();
-    }
 
     if(!feof(fp)) {
         bool run = false;
         do {
             if(state_may_have_changed) {
                 state_may_have_changed = false;
-                print_state(z80);
-                disassemble(z80.reg.PC, [this](int address, int& symbol_offset) -> const std::string& {return this->get_symbol(address, symbol_offset);}, 1);
+                print_state(state);
+                disassemble(state->pc, [this](uint16_t address, uint16_t& symbol_offset) -> const std::string& {return this->get_symbol(address, symbol_offset);}, 1, d->colecovision_context);
             }
             int which;
-            if(is_breakpoint_triggered(breakpoints, z80, which))
+            if(is_breakpoint_triggered(breakpoints, state, which, d->colecovision_context))
             {
                 printf("breakpoint %d: ", which);
                 BreakPoint& bp = breakpoints[which];
                 if(bp.type == BreakPoint::INSTRUCTION) {
-                    int symbol_offset;
-                    const std::string& sym = get_symbol(z80.reg.PC, symbol_offset);
+                    uint16_t symbol_offset;
+                    const std::string& sym = get_symbol(state->pc, symbol_offset);
                     printf("break at 0x%04x (%s+%d)\n", bp.address, sym.c_str(), symbol_offset);
                 } else {
-                    unsigned char new_value;
-                    new_value = readByte(nullptr, bp.address);
+                    uint8_t new_value;
+                    new_value = cv_read_byte(d->colecovision_context, bp.address);
                     printf("change at 0x%04X from 0x%02X to 0x%02X\n", bp.address, bp.old_value, new_value);
                 }
-                clear_breakpoints(breakpoints, z80);
+                clear_breakpoints(breakpoints, state, d->colecovision_context);
             }
             if(fp == stdin) {
                 char *line;
@@ -1697,7 +1588,7 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80 &z80)
                     if(strlen(line) > 0) {
                         add_history(line);
                     }
-                    run = process_line(boards, z80, line);
+                    run = process_line(state, line);
                     free(line);
                 }
             } else {
@@ -1706,14 +1597,10 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80 &z80)
                     break;
                 }
                 line[strlen(line) - 1] = '\0';
-                run = process_line(boards, z80, line);
+                run = process_line(state, line);
             }
 
         } while(!run);
-    }
-
-    for(auto b = boards.begin(); b != boards.end(); b++)  {
-        (*b)->resume();
     }
 
     previous_sigint = signal(SIGINT, mark_enter_debugger);
@@ -1724,7 +1611,7 @@ void Debugger::go(FILE *fp, std::vector<board_base*>& boards, Z80 &z80)
 
 struct Debugger
 {
-    Debugger(ColecoHW *colecohw, clk_t& clk) {}
+    Debugger(ColecovisionEmulator::ColecoHW *colecohw, ColecovisionContext *colecovision_context, clk_t& clk) {}
 };
 
 #endif /* PROVIDE_DEBUGGER */
@@ -1794,7 +1681,7 @@ void WriteVDPStateToFile(const char *base, int which, const uint8_t* registers, 
     fputs("", vdp_file);
 }
 
-void SaveVDPState(const TMS9918AEmulator *vdp, int which)
+void SaveVDPState(const ColecovisionEmulator::TMS9918AEmulator *vdp, int which)
 {
     char filename[512];
     sprintf(filename, "%s_%02d.vdp", getenv("VDP_OUT_BASE"), which);
@@ -1802,10 +1689,6 @@ void SaveVDPState(const TMS9918AEmulator *vdp, int which)
     WriteVDPStateToFile(getenv("VDP_OUT_BASE"), which, vdp->registers.data(), vdp->memory.data(), vdp_file);
     fclose(vdp_file);
 }
-
-}; // namespace ColecoVisionEmulator
-
-using namespace ColecoVisionEmulator;
 
 #if defined(ROSA)
 
@@ -1832,11 +1715,6 @@ static void sleep_for(int32_t millis)
 #endif
 }
 
-void printDebugMessage(void*, const char* str)
-{
-    puts(str);
-}
-
 uint8_t GetPlatformControllerState(int index, bool JoystickNotKeypad)
 {
     using namespace PlatformInterface;
@@ -1857,8 +1735,24 @@ struct ControllerEvent
     uint8_t bits_cleared;
 };
 
+void set_colecovision_context(ColecovisionContext *colecovision_context, RAMboard& RAM, ROMboard& BIOS, ROMboard& cartridge, ColecovisionEmulator::ColecoHW* colecohw)
+{
+    colecovision_context->RAM = RAM.bytes.data();
+
+    colecovision_context->BIOS.start = BIOS.base;
+    colecovision_context->BIOS.length = BIOS.length;
+    colecovision_context->BIOS.bytes = BIOS.bytes.data();
+
+    colecovision_context->cartridge.start = cartridge.base;
+    colecovision_context->cartridge.length = cartridge.length;
+    colecovision_context->cartridge.bytes = cartridge.bytes.data();
+
+    colecovision_context->cvhw = colecohw;
+}
+
 int main(int argc, char **argv)
 {
+    using namespace ColecovisionEmulator;
     using namespace PlatformInterface;
     using namespace std::chrono_literals;
 #ifdef PROVIDE_DEBUGGER
@@ -1967,11 +1861,11 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    int audioSampleRate;
+    uint32_t audioSampleRate;
     size_t preferredAudioBufferSampleCount;
     PlatformInterface::Start(audioSampleRate, preferredAudioBufferSampleCount);
 
-    unsigned char rom_temp[65536];
+    uint8_t rom_temp[32768];
     FILE *fp;
 
     char *bios_name = argv[0];
@@ -1988,8 +1882,7 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
     fclose(fp);
-    ROMboard *bios_rom = new ROMboard(0, bios_length, rom_temp);
-    BIOSROM = bios_rom;
+    ROMboard bios_rom(0, bios_length, rom_temp);
 
     audio_flush_func audio_flush = [](uint8_t *buf, size_t sz){ PlatformInterface::EnqueueAudioSamples(buf, sz); };
 
@@ -2010,8 +1903,9 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
     fclose(fp);
-    ROMboard *cart_rom = new ROMboard(0x8000, cart_length, rom_temp);
-    CartROM = cart_rom;
+
+    ROMboard cart_rom(0x8000, cart_length, rom_temp);
+    RAMboard RAM(RAM_START, RAM_ADDRESS_MASK + 1, RAM_LENGTH);
 
     clk_t clk = 0;
 
@@ -2106,25 +2000,19 @@ int main(int argc, char **argv)
     [[maybe_unused]] Debugger *debugger = NULL;
 #ifdef PROVIDE_DEBUGGER
     if(do_debugger) {
-        debugger = new Debugger(colecohw, clk);
+        debugger = new Debugger(colecohw, &colecovision_context, clk);
     }
 #endif
 
-    RAM = new RAMboard(0x6000, 0x2000);
+    Z80Reset(&z80state);
 
-    boards.push_back(colecohw);
-    boards.push_back(bios_rom);
-    boards.push_back(cart_rom);
-    boards.push_back(RAM);
-
-    for(auto b = boards.begin(); b != boards.end(); b++) {
-        (*b)->init();
-    }
+    ColecovisionContext *colecovision_context = new ColecovisionContext;
+    set_colecovision_context(colecovision_context, RAM, bios_rom, cart_rom, colecohw);
 
 #ifdef PROVIDE_DEBUGGER
     if(debugger) {
         enter_debugger = true;
-        debugger->process_line(boards, z80, debugger_argument);
+        debugger->process_line(&z80state, debugger_argument);
     }
 #endif
 
@@ -2136,15 +2024,13 @@ int main(int argc, char **argv)
     prevTick = HAL_GetTick();
 #endif
 
-    // z80.setDebugMessage(printDebugMessage);
-
-    PlatformInterface::MainLoopBodyFunc main_loop_body = [&clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &previous_field_start_clock, &emulation_start_time, &prevTick]() {
+    PlatformInterface::MainLoopBodyFunc main_loop_body = [colecovision_context, &clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &previous_field_start_clock, &emulation_start_time, &prevTick]() {
         (void)debugger; // If !PROVIDE_DEBUGGER then debugger is not referenced.
         (void)prevTick; // If !ROSA then prevTick is not referenced. // XXX move iterate call to platform main loop
 
 #ifdef PROVIDE_DEBUGGER
-        if(debugger && (enter_debugger || debugger->should_debug(boards, z80))) {
-            debugger->go(stdin, boards, z80);
+        if(debugger && (enter_debugger || debugger->should_debug(&z80state))) {
+            debugger->go(stdin, &z80state);
             enter_debugger = false;
         } else
 #endif
@@ -2161,7 +2047,7 @@ int main(int argc, char **argv)
             if(false) printf("was at %llu, need to be at %llu, need %llu (%.2f ms), will run %llu (%.2f ms)\n", clk, clock_now, clock_now - clk, (clock_now - clk) * 1000.0f / machine_clock_rate, target_clock - clk, (target_clock - clk) * 1000.0f / machine_clock_rate);
 
             // XXX THIS HAS TO REMAIN 1 UNTIL I CAN ISSUE NonMaskableInterrupt PER-INSTRUCTION
-            constexpr int iterated_clock_quantum = 1; // 1;
+            constexpr uint32_t iterated_clock_quantum = 1; // 1;
 
 #if defined(ROSA)
             RoDebugOverlayPrintf("%ld\n", (int)(target_clock - clk));
@@ -2171,17 +2057,27 @@ int main(int argc, char **argv)
                 std::string dummy;
                 {
                     static int which = 0;
-                    // if(which++ > 832600)
+                    if(false && (which++ > 832600))
                     {
-                        // print_state(z80);
-                        disassemble(z80.reg.PC, [&dummy](int address, int& symbol_offset)->std::string&{symbol_offset = 0; return dummy;}, 1);
+                        // print_state(&z80state);
+                        disassemble(z80state.pc, [&dummy](uint16_t address, uint16_t& symbol_offset)->std::string&{symbol_offset = 0; return dummy;}, 1, colecovision_context);
                     }
                 }
-                clk_t clocks_this_step = z80.execute(iterated_clock_quantum);
+                uint8_t byte = cv_read_byte(colecovision_context, z80state.pc);
+                bool is_HALT = byte == 0x76;
+                // printf("PC is %04X\n", z80state.pc);
+                clk_t clocks_this_step = Z80Emulate(&z80state, iterated_clock_quantum, colecovision_context);
+                if(false && is_HALT) {
+                    printf("VDP status register = %02X\n", colecohw->vdp.status_register);
+                    printf("VDP interrupts %s\n", TMS9918A::InterruptsAreEnabled(colecohw->vdp.registers.data()) ? "enabled" : "disabled");
+                    printf("VDP interrupt has %soccurred\n", TMS9918A::VSyncInterruptHasOccurred(colecohw->vdp.status_register) ? "" : "not ");
+                    printf("im = %d\n", z80state.im);
+                    printf("HALT took %llu clocks\n", clocks_this_step);
+                }
 #ifdef PROVIDE_DEBUGGER
                 if(debugger) {
-                    if(enter_debugger || debugger->should_debug(boards, z80)) {
-                        debugger->go(stdin, boards, z80);
+                    if(enter_debugger || debugger->should_debug(&z80state)) {
+                        debugger->go(stdin, &z80state);
                         enter_debugger = false;
                     }
                 }
@@ -2205,7 +2101,7 @@ int main(int argc, char **argv)
 
                 if(colecohw->nmi_required()) {
                     if(!nmi_was_issued) {
-                        z80.generateNMI(0x66);
+                        clk += Z80NonMaskableInterrupt (&z80state, colecovision_context);
                         nmi_was_issued = true;
                     }
                 } else {
@@ -2228,10 +2124,8 @@ int main(int argc, char **argv)
             if(e.type == PlatformInterface::QUIT) {
                 quit_requested = true;
             } else if(e.type == PlatformInterface::RESET) {
-                ResetZ80(z80);
-                for(auto b = boards.begin(); b != boards.end(); b++) {
-                    (*b)->reset();
-                }
+                Z80Reset(&z80state);
+                colecohw->reset();
             } else if(e.type == PlatformInterface::DUMP_SOME_AUDIO) {
                 dump_some_audio = 100;
             } else if(e.type == PlatformInterface::SAVE_VDP_STATE) {

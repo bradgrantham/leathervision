@@ -119,7 +119,7 @@ constexpr int SCREEN_SCALE = 3;
 std::chrono::time_point<std::chrono::system_clock> previous_draw_time;
 std::chrono::time_point<std::chrono::system_clock> previous_event_time;
 
-void Start(int& audioSampleRate, size_t& preferredAudioBufferSampleCount)
+void Start(uint32_t& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 {
 #if defined(EMSCRIPTEN)
 

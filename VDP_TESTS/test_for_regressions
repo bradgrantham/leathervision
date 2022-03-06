@@ -9,7 +9,7 @@ do
             # echo $filename
             test=$filename""_test.ppm
             ref=$filename""_ref.ppm
-            ../emulator -vdp-test $filename.vdp $test
+            ../emulator --vdp-test $filename.vdp $test
             if ! cmp $test $ref
             then
                 echo $filename FAILED with differences

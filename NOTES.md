@@ -1,11 +1,9 @@
-controller change automation
-    playback
-        --playback-controllers filename.txt
-        read all in on init into deque of struct ControllerEvent { clk_t clk; bool JoystickNotKeypad; enum Controller which; uint8_t setbits; uint8_t resetbits; }
-            pass deque into lambda
-        in ColecoHW::io_read, if clock is > controller_events.clk and which == read address, assert in same state as JoystickNotKeypad, set and reset bits and return current value
-
 TODO
+* can debugger be factored out into its own module?
+  * add a context template argument with read/write/pc/dump methods?
+* can z80state be in main() only?
+* move sleep_for into platform
+* move debug print into platform
 * Add dependencies to Makefile or use CMake
 * Am I correctly handling signed sprite Y?  (Page 2-26 in VDP docs)
 * Implement fifth sprite number 
@@ -15,7 +13,7 @@ TODO
 | Cartridge | Status | Notes |
 | --------- | ------ | ----- |
 | Mr. Do! | playable | |
-| Dig Dug | playable | |
+| Dig Dug | playable | sprites are incorrect |
 | Roc 'N Rope | playable | |
 | Defender | playable | |
 | Donkey Kong | playable | |
@@ -29,15 +27,21 @@ TODO
 | Burgertime | playable | |
 | Spy Hunter Prototype | playable | |
 | Spy Hunter | playable | |
-| Moon Patrol (prototype) | playable | |
+| Moon Patrol (prototype) | playable | should initial rainbow be letters? |
 | Beamrider | playable | |
 | Super Cross Force | playable | |
-| Jungle Hunt | unstable | occasional "cmd_phase was reset in ISR".  top of vines should be hidden |
+| carnival-1982.rom | playable | |
+| flapee-byrd-2014.rom | playable | |
+| gorf-1983.rom | playable | |
+| venture-1982.rom | playable | should beginning block of "?" be something? | 
+| star-wars-the-arcade-game-1984.rom | playable | better with trackball |
+| cabbage-patch-kids-adventures-in-the-park-1984.rom | playable | should sink into into pond? |
+| Jungle Hunt | playable | occasional "cmd_phase was reset in ISR".  top of vines should be hidden |
 | Q-bert | playable | (but known to make unknown command 0xC0 to VDP, ignored) |
 | Pitfall II - Lost Caverns | playable | a little chirping during soundtrack - am I not doing silencing correctly? |
 | Miner 2049er | playable | weird tone at beginning |
 | Popeye | playable | strange high-pitched whistle when there seems like there should be a rest between notes during play |
 | Super Action Controller Test Cartridge | playable | is it missing some glyphs because it's assuming Atari joystick for some reason? |
-| Frogger | hang WONTFIX | repeated note after drawing initial screen, no recognition of game start |
+| Frogger | garbage | video and audio junk |
 | Slither | unknown | appears to work but requires Roller Controller (trackball) |
-
+| turbo-1982.rom | unplayable | doesn't recognize keypad to select from menu |  
