@@ -39,26 +39,26 @@ Event DequeueEvent()
         return {NONE, 0};
 }
 
-constexpr uint8_t CONTROLLER1_NORTH_BIT = 0x01;
-constexpr uint8_t CONTROLLER1_EAST_BIT = 0x02;
-constexpr uint8_t CONTROLLER1_SOUTH_BIT = 0x04;
-constexpr uint8_t CONTROLLER1_WEST_BIT = 0x08;
-constexpr uint8_t CONTROLLER1_FIRE_LEFT_BIT = 0x40;
+static constexpr uint8_t CONTROLLER1_NORTH_BIT = 0x01;
+static constexpr uint8_t CONTROLLER1_EAST_BIT = 0x02;
+static constexpr uint8_t CONTROLLER1_SOUTH_BIT = 0x04;
+static constexpr uint8_t CONTROLLER1_WEST_BIT = 0x08;
+static constexpr uint8_t CONTROLLER1_FIRE_LEFT_BIT = 0x40;
 
-constexpr uint8_t CONTROLLER1_KEYPAD_MASK = 0x0F;
-constexpr uint8_t CONTROLLER1_FIRE_RIGHT_BIT = 0x40;
-constexpr uint8_t CONTROLLER1_KEYPAD_0 = 0x05;
-constexpr uint8_t CONTROLLER1_KEYPAD_1 = 0x02;
-constexpr uint8_t CONTROLLER1_KEYPAD_2 = 0x08;
-constexpr uint8_t CONTROLLER1_KEYPAD_3 = 0x03;
-constexpr uint8_t CONTROLLER1_KEYPAD_4 = 0x0D;
-constexpr uint8_t CONTROLLER1_KEYPAD_5 = 0x0C;
-constexpr uint8_t CONTROLLER1_KEYPAD_6 = 0x01;
-constexpr uint8_t CONTROLLER1_KEYPAD_7 = 0x0A;
-constexpr uint8_t CONTROLLER1_KEYPAD_8 = 0x0E;
-constexpr uint8_t CONTROLLER1_KEYPAD_9 = 0x04;
-constexpr uint8_t CONTROLLER1_KEYPAD_asterisk = 0x06;
-constexpr uint8_t CONTROLLER1_KEYPAD_pound = 0x09;
+static constexpr uint8_t CONTROLLER1_KEYPAD_MASK = 0x0F;
+static constexpr uint8_t CONTROLLER1_FIRE_RIGHT_BIT = 0x40;
+static constexpr uint8_t CONTROLLER1_KEYPAD_0 = 0x05;
+static constexpr uint8_t CONTROLLER1_KEYPAD_1 = 0x02;
+static constexpr uint8_t CONTROLLER1_KEYPAD_2 = 0x08;
+static constexpr uint8_t CONTROLLER1_KEYPAD_3 = 0x03;
+static constexpr uint8_t CONTROLLER1_KEYPAD_4 = 0x0D;
+static constexpr uint8_t CONTROLLER1_KEYPAD_5 = 0x0C;
+static constexpr uint8_t CONTROLLER1_KEYPAD_6 = 0x01;
+static constexpr uint8_t CONTROLLER1_KEYPAD_7 = 0x0A;
+static constexpr uint8_t CONTROLLER1_KEYPAD_8 = 0x0E;
+static constexpr uint8_t CONTROLLER1_KEYPAD_9 = 0x04;
+static constexpr uint8_t CONTROLLER1_KEYPAD_asterisk = 0x06;
+static constexpr uint8_t CONTROLLER1_KEYPAD_pound = 0x09;
 
 uint8_t controller_1_joystick_state = 0;
 uint8_t controller_2_joystick_state = 0;
@@ -94,7 +94,7 @@ uint8_t GetKeypadState(ControllerIndex controller)
 }
 
 ao_device *aodev;
-constexpr int audio_rate = 44100;
+static constexpr int audio_rate = 44100;
 
 ao_device *open_ao(int rate)
 {
@@ -564,7 +564,7 @@ void iterate_ui()
     glfwPollEvents();
 }
 
-constexpr int SCREEN_SCALE = 3;
+static constexpr int SCREEN_SCALE = 3;
 
 std::chrono::time_point<std::chrono::system_clock> previous_draw_time;
 std::chrono::time_point<std::chrono::system_clock> previous_event_time;

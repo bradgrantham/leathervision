@@ -100,21 +100,21 @@ namespace ColecovisionEmulator
 bool quit_requested = false;
 bool enter_debugger = false; 
 
-constexpr clk_t machine_clock_rate = 3579545;
-constexpr uint32_t slice_frequency_times_1000 = 59940;
-constexpr uint32_t clocks_per_retrace = machine_clock_rate * 1000 / slice_frequency_times_1000;
+static constexpr clk_t machine_clock_rate = 3579545;
+static constexpr uint32_t slice_frequency_times_1000 = 59940;
+static constexpr uint32_t clocks_per_retrace = machine_clock_rate * 1000 / slice_frequency_times_1000;
 
-constexpr uint32_t DEBUG_NONE = 0x00;
-[[maybe_unused]] constexpr uint32_t DEBUG_ROM = 0x01; // Needs to be passed over to z80emu
-[[maybe_unused]] constexpr uint32_t DEBUG_RAM = 0x02; // Needs to be passed over to z80emu
-constexpr uint32_t DEBUG_IO = 0x04;
-constexpr uint32_t DEBUG_SCANOUT = 0x08;
-constexpr uint32_t DEBUG_VDP_OPERATIONS = 0x10;
+static constexpr uint32_t DEBUG_NONE = 0x00;
+[[maybe_unused]] static constexpr uint32_t DEBUG_ROM = 0x01; // Needs to be passed over to z80emu
+[[maybe_unused]] static constexpr uint32_t DEBUG_RAM = 0x02; // Needs to be passed over to z80emu
+static constexpr uint32_t DEBUG_IO = 0x04;
+static constexpr uint32_t DEBUG_SCANOUT = 0x08;
+static constexpr uint32_t DEBUG_VDP_OPERATIONS = 0x10;
 uint32_t debug = DEBUG_NONE;
 bool abort_on_exception = false;
 bool do_save_images_on_vdp_write = false;
 int dump_some_audio = 0;
-constexpr bool break_on_unknown_address = true;
+static constexpr bool break_on_unknown_address = true;
 
 void print_state(Z80_STATE* state)
 {
@@ -2047,7 +2047,7 @@ int main(int argc, char **argv)
             if(false) printf("was at %llu, need to be at %llu, need %llu (%.2f ms), will run %llu (%.2f ms)\n", clk, clock_now, clock_now - clk, (clock_now - clk) * 1000.0f / machine_clock_rate, target_clock - clk, (target_clock - clk) * 1000.0f / machine_clock_rate);
 
             // XXX THIS HAS TO REMAIN 1 UNTIL I CAN ISSUE NonMaskableInterrupt PER-INSTRUCTION
-            constexpr uint32_t iterated_clock_quantum = 1; // 1;
+            static constexpr uint32_t iterated_clock_quantum = 1; // 1;
 
 #if defined(ROSA)
             RoDebugOverlayPrintf("%ld\n", (int)(target_clock - clk));

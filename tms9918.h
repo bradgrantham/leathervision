@@ -8,71 +8,71 @@
 namespace TMS9918A
 {
 
-constexpr int SCREEN_X = 256;
-constexpr int SCREEN_Y = 192;
+static constexpr int SCREEN_X = 256;
+static constexpr int SCREEN_Y = 192;
 
-constexpr int REG_A0_A5_MASK = 0x3F;
-constexpr int CMD_MASK = 0xC0;
-constexpr int CMD_SET_REGISTER = 0x80;
-constexpr int CMD_SET_WRITE_ADDRESS = 0x40;
-constexpr int CMD_SET_READ_ADDRESS = 0x00;
+static constexpr int REG_A0_A5_MASK = 0x3F;
+static constexpr int CMD_MASK = 0xC0;
+static constexpr int CMD_SET_REGISTER = 0x80;
+static constexpr int CMD_SET_WRITE_ADDRESS = 0x40;
+static constexpr int CMD_SET_READ_ADDRESS = 0x00;
 
-constexpr int VR0_M3_MASK = 0x02;
-[[maybe_unused]] constexpr int VR0_EXTVID_MASK = 0x01;
+static constexpr int VR0_M3_MASK = 0x02;
+[[maybe_unused]] static constexpr int VR0_EXTVID_MASK = 0x01;
 
-[[maybe_unused]] constexpr int VR1_16K_MASK = 0x80; 
-constexpr int VR1_BLANK_MASK = 0x40; /* and BLANK is active low */
-constexpr int VR1_INT_MASK = 0x20;
-constexpr int VR1_M2_MASK = 0x10;
-constexpr int VR1_M1_MASK = 0x08;
-constexpr int VR1_SIZE4_MASK = 0x02;
-constexpr int VR1_MAG2X_MASK = 0x01;
+[[maybe_unused]] static constexpr int VR1_16K_MASK = 0x80; 
+static constexpr int VR1_BLANK_MASK = 0x40; /* and BLANK is active low */
+static constexpr int VR1_INT_MASK = 0x20;
+static constexpr int VR1_M2_MASK = 0x10;
+static constexpr int VR1_M1_MASK = 0x08;
+static constexpr int VR1_SIZE4_MASK = 0x02;
+static constexpr int VR1_MAG2X_MASK = 0x01;
 
-constexpr int VR2_NAME_TABLE_MASK = 0x0F;
-constexpr int VR2_NAME_TABLE_SHIFT = 10;
+static constexpr int VR2_NAME_TABLE_MASK = 0x0F;
+static constexpr int VR2_NAME_TABLE_SHIFT = 10;
 
-constexpr int VR3_COLORTABLE_MASK_STANDARD = 0xFF;
-constexpr int VR3_COLORTABLE_SHIFT_STANDARD = 6;
+static constexpr int VR3_COLORTABLE_MASK_STANDARD = 0xFF;
+static constexpr int VR3_COLORTABLE_SHIFT_STANDARD = 6;
 
-constexpr int VR3_COLORTABLE_MASK_BITMAP = 0x80;
-constexpr int VR3_COLORTABLE_SHIFT_BITMAP = 6;
+static constexpr int VR3_COLORTABLE_MASK_BITMAP = 0x80;
+static constexpr int VR3_COLORTABLE_SHIFT_BITMAP = 6;
 
-constexpr int VR3_ADDRESS_MASK_BITMAP = 0x7F;
-constexpr int VR3_ADDRESS_MASK_SHIFT = 6;
+static constexpr int VR3_ADDRESS_MASK_BITMAP = 0x7F;
+static constexpr int VR3_ADDRESS_MASK_SHIFT = 6;
 
-constexpr int VR4_PATTERN_MASK_STANDARD = 0x07;
-constexpr int VR4_PATTERN_SHIFT_STANDARD = 11;
+static constexpr int VR4_PATTERN_MASK_STANDARD = 0x07;
+static constexpr int VR4_PATTERN_SHIFT_STANDARD = 11;
 
-constexpr int VR4_PATTERN_MASK_BITMAP = 0x04;
-constexpr int VR4_PATTERN_SHIFT_BITMAP = 11;
+static constexpr int VR4_PATTERN_MASK_BITMAP = 0x04;
+static constexpr int VR4_PATTERN_SHIFT_BITMAP = 11;
 
-constexpr int VR5_SPRITE_ATTR_MASK = 0x7F;
-constexpr int VR5_SPRITE_ATTR_SHIFT = 7;
+static constexpr int VR5_SPRITE_ATTR_MASK = 0x7F;
+static constexpr int VR5_SPRITE_ATTR_SHIFT = 7;
 
-constexpr int VR6_SPRITE_PATTERN_MASK = 0x07;
-constexpr int VR6_SPRITE_PATTERN_SHIFT = 11;
+static constexpr int VR6_SPRITE_PATTERN_MASK = 0x07;
+static constexpr int VR6_SPRITE_PATTERN_SHIFT = 11;
 
-constexpr int VR7_BD_MASK = 0x0F;
-constexpr int VR7_BD_SHIFT = 0;
+static constexpr int VR7_BD_MASK = 0x0F;
+static constexpr int VR7_BD_SHIFT = 0;
 
-constexpr int VDP_STATUS_F_BIT = 0x80;
-constexpr int VDP_STATUS_5S_BIT = 0x40;
-constexpr int VDP_STATUS_C_BIT = 0x20;
+static constexpr int VDP_STATUS_F_BIT = 0x80;
+static constexpr int VDP_STATUS_5S_BIT = 0x40;
+static constexpr int VDP_STATUS_C_BIT = 0x20;
 
-constexpr int ROW_SHIFT = 5;
-constexpr int THIRD_SHIFT = 11;
-constexpr int CHARACTER_PATTERN_SHIFT = 3;
-constexpr int CHARACTER_COLOR_SHIFT = 3;
-constexpr int ADDRESS_MASK_FILL = 0x3F;
+static constexpr int ROW_SHIFT = 5;
+static constexpr int THIRD_SHIFT = 11;
+static constexpr int CHARACTER_PATTERN_SHIFT = 3;
+static constexpr int CHARACTER_COLOR_SHIFT = 3;
+static constexpr int ADDRESS_MASK_FILL = 0x3F;
 
-constexpr int SPRITE_EARLY_CLOCK_MASK = 0x80;
-constexpr int SPRITE_COLOR_MASK = 0x0F;
-constexpr int SPRITE_NAME_SHIFT = 3;
-constexpr int SPRITE_NAME_MASK_SIZE4 = 0xFC;
+static constexpr int SPRITE_EARLY_CLOCK_MASK = 0x80;
+static constexpr int SPRITE_COLOR_MASK = 0x0F;
+static constexpr int SPRITE_NAME_SHIFT = 3;
+static constexpr int SPRITE_NAME_MASK_SIZE4 = 0xFC;
 
-constexpr int TRANSPARENT_COLOR_INDEX = 0;
+static constexpr int TRANSPARENT_COLOR_INDEX = 0;
 
-constexpr int REGISTER_COUNT = 8;
+static constexpr int REGISTER_COUNT = 8;
 
 enum GraphicsMode { GRAPHICS_I, GRAPHICS_II, TEXT, MULTICOLOR, UNDEFINED };
 
