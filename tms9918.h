@@ -314,7 +314,9 @@ static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::
 {
     using namespace TMS9918A;
 
-    bool sprite_touched[SCREEN_X]{};
+    static bool sprite_touched[SCREEN_X];
+
+    std::fill(sprite_touched, sprite_touched + SCREEN_X, false);
 
     uint8_t flags_set = 0;
 
@@ -341,16 +343,15 @@ static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::
     }
 
     int sprites_in_row = 0;
-    for(int i = sprite_count - 1; i >= 0; i--) {
+    for(int i = 0; i < sprite_count; i++) {
         auto sprite = memory + sprite_table_address + i * 4;
 
-        int sprite_y = sprite[0] + 1;
+        int sprite_y_byte = (sprite[0] + 1) & 0xFF;
+        int sprite_y = (sprite_y_byte > 209) ? (sprite_y_byte - 256) : sprite_y_byte;
         int sprite_x = sprite[1];
         int sprite_name = sprite[2];
         bool sprite_earlyclock = sprite[3] & SPRITE_EARLY_CLOCK_MASK;
         int sprite_color = sprite[3] & SPRITE_COLOR_MASK;
-
-        int masked_sprite = sprite_name & SPRITE_NAME_MASK_SIZE4;
 
         // printf("sprite %d: %d %d %d %d\n", i, sprite_x, sprite_y, sprite_name, sprite_color);
 
@@ -368,19 +369,21 @@ static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::
             int within_sprite_y = mag2x ? ((row - sprite_y) / 2) : (row - sprite_y);
 
             sprites_in_row ++;
-            if(sprites_in_row > 5) {
+            if(sprites_in_row > 4) {
                 flags_set |= VDP_STATUS_5S_BIT;
-                break; // XXX
+                // XXX also set which sprite
+                break;
             }
 
-            auto set_color_from_bit = [&flags_set, &sprite_touched, &row_colors, sprite_color](int bit, int x) {
+            auto set_color_from_bit = [&flags_set, &row_colors, sprite_color](int bit, int x) {
                 if(bit) {
-                    if(sprite_touched[x]) {
+                    if(!sprite_touched[x]) {
+                        sprite_touched[x] = true;
+                        if(sprite_color != TRANSPARENT_COLOR_INDEX) {
+                            row_colors[x] = sprite_color;
+                        }
+                    } else {
                         flags_set |= VDP_STATUS_C_BIT;
-                    }
-                    sprite_touched[x] = true;
-                    if(sprite_color != TRANSPARENT_COLOR_INDEX) {
-                        row_colors[x] = sprite_color;
                     }
                 }
             };
@@ -388,6 +391,7 @@ static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::
             if(size4) {
                 int within_quadrant_y = within_sprite_y % 8;
                 int quadrant_y = within_sprite_y / 8;
+                int masked_sprite_name = sprite_name & SPRITE_NAME_MASK_SIZE4;
 
 #pragma GCC unroll 8
                 for(int x = start_x; x <= end_x; x++) {
@@ -396,7 +400,7 @@ static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::
 
                     int quadrant = quadrant_y + (within_sprite_x / 8) * 2;
                     int within_quadrant_x = within_sprite_x % 8;
-                    int sprite_pattern_address = GetSpritePatternTableBase(registers) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
+                    int sprite_pattern_address = GetSpritePatternTableBase(registers) | (masked_sprite_name << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
                     int bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
                     set_color_from_bit(bit, x);
                 }
