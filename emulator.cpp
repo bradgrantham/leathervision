@@ -410,7 +410,9 @@ struct TMS9918AEmulator
             write_rgb8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
             fclose(fp);
         }
+
         write_number++;
+
         if(cmd) {
 
             if(cmd_phase == CMD_PHASE_FIRST) {
@@ -464,8 +466,9 @@ struct TMS9918AEmulator
                     printf("VDP data write 0x%02X, '%s'\n", data, bitfield);
                 }
             }
-            memory[write_address++] = data;
-            write_address = write_address % MEMORY_SIZE;
+            memory[write_address] = data;
+            write_address = (write_address + 1) % MEMORY_SIZE;
+            cmd_phase = CMD_PHASE_FIRST; // https://github.com/cbmeeks/TMS9918/blob/master/tms9918a.txt
         }
 
     }
@@ -487,8 +490,9 @@ struct TMS9918AEmulator
             status_register = 0;  
             return data;
         } else {
-            uint8_t data = memory[read_address++];
-            read_address = read_address % MEMORY_SIZE;
+            uint8_t data = memory[read_address];
+            read_address = (read_address + 1) % MEMORY_SIZE;
+            cmd_phase = CMD_PHASE_FIRST; // https://github.com/cbmeeks/TMS9918/blob/master/tms9918a.txt
             return data;
         }
     }
