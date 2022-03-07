@@ -20,8 +20,8 @@ all: emulator emulator_terminal emulator_sdl
 # hex2bin hexinfo
 
 OBJECTS_GLFW = emulator.o z80emu.o readhex.o coleco_platform_glfw.o gl_utility.o
-OBJECTS_SDL = emulator.o z80emu.o coleco_platform_sdl.o
-OBJECTS_TERMINAL = emulator.o z80emu.o coleco_platform_template.o
+OBJECTS_SDL = emulator.o z80emu.o readhex.o coleco_platform_sdl.o
+OBJECTS_TERMINAL = emulator.o z80emu.o readhex.o coleco_platform_template.o
 
 
 emulator: $(OBJECTS_GLFW)
