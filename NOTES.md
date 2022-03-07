@@ -1,14 +1,15 @@
 TODO
-* can debugger be factored out into its own module?
-  * add a context template argument with read/write/pc/dump methods?
-* can z80state be in main() only?
+* Not doing transparent sprites correctly, I think.  A higher-priority transparent sprite I think covers all sprites under it and shows through the pattern.  May have to implement logic to walk line as outer loop and sprites as inner loop
+* Am I correctly handling signed sprite Y?  (Page 2-26 in VDP docs)
+* Implement fifth sprite number 
+* Implement backdrop outside scan area in NTSC on Rosa?  Will be visible on NTSC and can match device.  Handling early clock needs care
 * move sleep_for into platform
 * move debug print into platform
 * Add dependencies to Makefile or use CMake
-* Am I correctly handling signed sprite Y?  (Page 2-26 in VDP docs)
-* Implement fifth sprite number 
 * Make IO read/write decoding match schematic
-* Implement backdrop outside scan area in NTSC on Rosa?  Will be visible on NTSC and can match device.  Handling early clock needs care
+* can debugger be factored out into its own module?
+  * add a context template argument with read/write/pc/dump methods?
+* can z80state be in main() only?
 
 | Cartridge | Status | Notes |
 | --------- | ------ | ----- |
