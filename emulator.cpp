@@ -7,7 +7,9 @@
 #include <string>
 #include <chrono>
 #include <map>
+#include <unordered_map>
 #include <set>
+#include <unordered_set>
 #include <deque>
 #include <array>
 #include <thread>
@@ -19,7 +21,7 @@
 
 #define ENABLE_AUTOMATION
 
-#undef PROVIDE_DEBUGGER
+#define PROVIDE_DEBUGGER
 
 #ifdef PROVIDE_DEBUGGER
 #include <signal.h>
@@ -37,6 +39,12 @@
 #if defined(ROSA)
 #include "rocinante.h"
 #endif
+
+// XXX *** MUST do sprite signal at scanout time *** XXX
+
+// Wrap the entire app in a namespace to protect from other apps if linked together.
+namespace ColecovisionEmulator
+{
 
 Z80_STATE z80state;
 
@@ -93,9 +101,6 @@ struct ROMboard
     {
     }
 };
-
-namespace ColecovisionEmulator
-{
 
 bool quit_requested = false;
 bool enter_debugger = false; 
@@ -389,7 +394,7 @@ struct TMS9918AEmulator
     void write(uint8_t cmd, uint8_t data)
     {
         using namespace TMS9918A;
-        if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %d cmd==%d, in_nmi = %d\n", write_number, cmd, Z80IsInNMI(z80state) ? 1 : 0);
+        if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %lu cmd==%d, in_nmi = %d\n", write_number, cmd, Z80IsInNMI(z80state) ? 1 : 0);
         if(do_save_images_on_vdp_write) { /* debug */
 
             uint8_t framebuffer[SCREEN_X * SCREEN_Y * 3];
@@ -400,7 +405,7 @@ struct TMS9918AEmulator
 
             CreateImageAndReturnFlags(registers.data(), memory.data(), pixel_setter);
             char name[512];
-            sprintf(name, "frame_%04d_%05d_%d_%02X.ppm", frame_number, write_number, cmd, data);
+            sprintf(name, "frame_%04lu_%05lu_%d_%02X.ppm", frame_number, write_number, cmd, data);
             FILE *fp = fopen(name, "wb");
             write_rgb8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
             fclose(fp);
@@ -493,7 +498,7 @@ struct TMS9918AEmulator
         frame_number++;
         write_number = 0;
         if(debug & DEBUG_SCANOUT) {
-            printf("scanout frame %d\n", frame_number);
+            printf("scanout frame %lu\n", frame_number);
         }
 
         status_register |= scanout(registers.data(), memory.data());
@@ -537,7 +542,7 @@ struct ColecoHW
     {
     }
 
-    virtual bool io_write(uint8_t addr, uint8_t data)
+    bool io_write(uint8_t addr, uint8_t data)
     {
         if(false) {
             if(addr == ColecoHW::VDP_CMD_PORT) {
@@ -596,7 +601,7 @@ struct ColecoHW
         return false;
     }
 
-    virtual bool io_read(uint8_t addr, uint8_t &data)
+    bool io_read(uint8_t addr, uint8_t &data)
     {
         if(false) {
             if(addr == ColecoHW::VDP_CMD_PORT) {
@@ -646,13 +651,13 @@ struct ColecoHW
         return false;
     }
 
-    virtual void reset(void)
+    void reset(void)
     {
         vdp.reset();
         sound.reset();
     }
 
-    virtual bool nmi_required()
+    bool nmi_required()
     {
         return vdp.nmi_required();
     }
@@ -663,33 +668,9 @@ struct ColecoHW
     }
 };
 
-}; // namespace ColecovisionEmulator
-
-uint8_t cv_in_byte(void* ctx_, uint16_t address16)
-{
-    auto *context = reinterpret_cast<ColecovisionContext*>(ctx_);
-    auto* cvhw = reinterpret_cast<ColecovisionEmulator::ColecoHW*>(context->cvhw);
-
-    uint8_t b = 0;
-    bool served = cvhw->io_read(address16 & 0xff, b);
-    if(!served) {
-        printf("IN %d (0x%02X) was not handled!\n", address16, address16);
-    }
-    return b;
-}
-
-void cv_out_byte(void* ctx_, uint16_t address16, uint8_t value)
-{
-    auto *context = reinterpret_cast<ColecovisionContext*>(ctx_);
-    auto* cvhw = reinterpret_cast<ColecovisionEmulator::ColecoHW*>(context->cvhw);
-
-    bool accepted = cvhw->io_write(address16 & 0xff, value);
-    if(!accepted) {
-        printf("OUT %d (0x%02X), 0x%02X was not handled!\n", address16, address16, value);
-    }
-}
-
+#if USE_BG80D
 #include "bg80d.h"
+#endif /* USE_BG80D */
 
 struct reader_context
 {
@@ -822,7 +803,7 @@ bool is_breakpoint_triggered(std::vector<BreakPoint>& breakpoints, Z80_STATE* st
 
 struct Debugger
 {
-    ColecovisionEmulator::ColecoHW* colecohw{nullptr};
+    ColecoHW* colecohw{nullptr};
     ColecovisionContext *colecovision_context;
     clk_t& clk;
     std::vector<BreakPoint> breakpoints;
@@ -885,7 +866,7 @@ struct Debugger
         last_was_step = false;
         last_was_jump = false;
     }
-    Debugger(ColecovisionEmulator::ColecoHW *colecohw, ColecovisionContext *colecovision_context, clk_t& clk) :
+    Debugger(ColecoHW *colecohw, ColecovisionContext *colecovision_context, clk_t& clk) :
         colecohw(colecohw),
         colecovision_context(colecovision_context),
         clk(clk)
@@ -928,8 +909,9 @@ struct storer_context
     ColecovisionContext* colecovision_context;
 };
 
-void store_memory(void *arg, uint16_t address, uint8_t p)
+void store_memory(void *arg, int addressi, uint8_t p)
 {
+    uint16_t address = static_cast<uint16_t>(addressi);
     auto* context = reinterpret_cast<storer_context*>(arg);
     cv_write_byte(context->colecovision_context, address, p);
     context->min_address = std::min(context->min_address, address);
@@ -958,7 +940,7 @@ bool debugger_readhex(Debugger *d, Z80_STATE* state, int argc, char **argv)
         return false;
     }
     printf("Read %d (0x%04X) bytes from %s into 0x%04X..0x%04X (might be sparse)\n",
-        context->write_count, context->write_count, argv[1], context->min_address, context->max_address);
+        context.write_count, context.write_count, argv[1], context.min_address, context.max_address);
     fclose(fp);
     return false;
 }
@@ -1028,10 +1010,10 @@ void dump_buffer_hex(int indent, uint16_t actual_address, uint8_t *data, int siz
     }
 }
 
-void disassemble_instructions(uint16_t address, Debugger *d, int insncount)
+void disassemble_instructions(uint16_t address, Debugger *d, int insncount, ColecovisionContext* colecovision_context)
 {
     for(int i = 0; i < insncount; i++) {
-	address += disassemble(address, [d](uint16_t address, uint16_t& symbol_offset) -> const std::string& {return d->get_symbol(address, symbol_offset);}, 1, d->colecovision_context);
+	address += disassemble(address, [d](uint16_t address, uint16_t& symbol_offset) -> const std::string& {return d->get_symbol(address, symbol_offset);}, 1, colecovision_context);
     }
 }
 
@@ -1168,7 +1150,7 @@ bool debugger_in(Debugger *d, Z80_STATE* state, int argc, char **argv)
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[1]);
         return false;
     }
-    uint8_t byte = cv_input_byte(d->colecovision_context, port, byte);
+    uint8_t byte = cv_in_byte(d->colecovision_context, port);
     printf("received byte 0x%02X from port %d (0x%02X)\n", byte, port, port);
     return false;
 }
@@ -1190,7 +1172,7 @@ bool debugger_out(Debugger *d, Z80_STATE* state, int argc, char **argv)
         printf("number parsing failed for %s; forgot to lead with 0x?\n", argv[2]);
         return false;
     }
-    cv_output_byte(d->colecovision_context, port, value);
+    cv_out_byte(d->colecovision_context, port, value);
     return false;
 }
 
@@ -1253,7 +1235,7 @@ bool debugger_step(Debugger *d, Z80_STATE* state, int argc, char **argv)
         if(i < count - 1) {
             if(verbose) {
                 print_state(state);
-                disassemble(state->pc, d, 1, d->colecovision_context);
+                disassemble(state->pc, [d](uint16_t address, uint16_t& symbol_offset) -> const std::string& {return d->get_symbol(address, symbol_offset);}, 1, d->colecovision_context);
             }
         }
         if(d->should_debug(state)) {
@@ -1521,10 +1503,10 @@ bool Debugger::should_debug(Z80_STATE* state)
     int which;
 
     // XXX move?
-    auto io_reads_tmp = d->colecohw->io_reads;
-    auto io_writes_tmp = d->colecohw->io_writes;
-    d->colecohw->io_reads.clear();
-    d->colecohw->io_writes.clear();
+    auto io_reads_tmp = colecohw->io_reads;
+    auto io_writes_tmp = colecohw->io_writes;
+    colecohw->io_reads.clear();
+    colecohw->io_writes.clear();
 
     for(auto io_read: io_reads_tmp) {
         if(io_watch.count(io_read) > 0) {
@@ -1537,7 +1519,7 @@ bool Debugger::should_debug(Z80_STATE* state)
         }
     }
 
-    bool should = !last_was_jump && is_breakpoint_triggered(breakpoints, state, which, d->colecovision_context);
+    bool should = !last_was_jump && is_breakpoint_triggered(breakpoints, state, which, colecovision_context);
 
     last_was_jump = false;
 
@@ -1559,10 +1541,10 @@ void Debugger::go(FILE *fp, Z80_STATE* state)
             if(state_may_have_changed) {
                 state_may_have_changed = false;
                 print_state(state);
-                disassemble(state->pc, [this](uint16_t address, uint16_t& symbol_offset) -> const std::string& {return this->get_symbol(address, symbol_offset);}, 1, d->colecovision_context);
+                disassemble(state->pc, [this](uint16_t address, uint16_t& symbol_offset) -> const std::string& {return this->get_symbol(address, symbol_offset);}, 1, colecovision_context);
             }
             int which;
-            if(is_breakpoint_triggered(breakpoints, state, which, d->colecovision_context))
+            if(is_breakpoint_triggered(breakpoints, state, which, colecovision_context))
             {
                 printf("breakpoint %d: ", which);
                 BreakPoint& bp = breakpoints[which];
@@ -1572,10 +1554,10 @@ void Debugger::go(FILE *fp, Z80_STATE* state)
                     printf("break at 0x%04x (%s+%d)\n", bp.address, sym.c_str(), symbol_offset);
                 } else {
                     uint8_t new_value;
-                    new_value = cv_read_byte(d->colecovision_context, bp.address);
+                    new_value = cv_read_byte(colecovision_context, bp.address);
                     printf("change at 0x%04X from 0x%02X to 0x%02X\n", bp.address, bp.old_value, new_value);
                 }
-                clear_breakpoints(breakpoints, state, d->colecovision_context);
+                clear_breakpoints(breakpoints, state, colecovision_context);
             }
             if(fp == stdin) {
                 char *line;
@@ -1611,7 +1593,7 @@ void Debugger::go(FILE *fp, Z80_STATE* state)
 
 struct Debugger
 {
-    Debugger(ColecovisionEmulator::ColecoHW *colecohw, ColecovisionContext *colecovision_context, clk_t& clk) {}
+    Debugger(ColecoHW *colecohw, ColecovisionContext *colecovision_context, clk_t& clk) {}
 };
 
 #endif /* PROVIDE_DEBUGGER */
@@ -1681,7 +1663,7 @@ void WriteVDPStateToFile(const char *base, int which, const uint8_t* registers, 
     fputs("", vdp_file);
 }
 
-void SaveVDPState(const ColecovisionEmulator::TMS9918AEmulator *vdp, int which)
+void SaveVDPState(const TMS9918AEmulator *vdp, int which)
 {
     char filename[512];
     sprintf(filename, "%s_%02d.vdp", getenv("VDP_OUT_BASE"), which);
@@ -1689,6 +1671,42 @@ void SaveVDPState(const ColecovisionEmulator::TMS9918AEmulator *vdp, int which)
     WriteVDPStateToFile(getenv("VDP_OUT_BASE"), which, vdp->registers.data(), vdp->memory.data(), vdp_file);
     fclose(vdp_file);
 }
+
+uint8_t GetPlatformControllerState(int index, bool JoystickNotKeypad)
+{
+    using namespace PlatformInterface;
+    ControllerIndex controller = (index == 0) ? PlatformInterface::CONTROLLER_1 : PlatformInterface::CONTROLLER_2;
+    if(JoystickNotKeypad) {
+        return GetJoystickState(controller);
+    } else {
+        return GetKeypadState(controller);
+    }
+}
+
+struct ControllerEvent
+{
+    clk_t clk;
+    bool JoystickNotKeypad;
+    int index;
+    uint8_t bits_set;
+    uint8_t bits_cleared;
+};
+
+void set_colecovision_context(ColecovisionContext *colecovision_context, RAMboard& RAM, ROMboard& BIOS, ROMboard& cartridge, ColecoHW* colecohw)
+{
+    colecovision_context->RAM = RAM.bytes.data();
+
+    colecovision_context->BIOS.start = BIOS.base;
+    colecovision_context->BIOS.length = BIOS.length;
+    colecovision_context->BIOS.bytes = BIOS.bytes.data();
+
+    colecovision_context->cartridge.start = cartridge.base;
+    colecovision_context->cartridge.length = cartridge.length;
+    colecovision_context->cartridge.bytes = cartridge.bytes.data();
+
+    colecovision_context->cvhw = colecohw;
+}
+
 
 #if defined(ROSA)
 
@@ -1715,45 +1733,41 @@ static void sleep_for(int32_t millis)
 #endif
 }
 
-uint8_t GetPlatformControllerState(int index, bool JoystickNotKeypad)
+extern "C" {
+
+uint8_t cv_in_byte(void* ctx_, uint16_t address16)
 {
-    using namespace PlatformInterface;
-    ControllerIndex controller = (index == 0) ? CONTROLLER_1 : CONTROLLER_2;
-    if(JoystickNotKeypad) {
-        return GetJoystickState(controller);
-    } else {
-        return GetKeypadState(controller);
+    auto *context = reinterpret_cast<ColecovisionContext*>(ctx_);
+    auto* cvhw = reinterpret_cast<ColecoHW*>(context->cvhw);
+
+    uint8_t b = 0;
+    bool served = cvhw->io_read(address16 & 0xff, b);
+    if(!served) {
+        printf("IN %d (0x%02X) was not handled!\n", address16, address16);
+    }
+    return b;
+}
+
+void cv_out_byte(void* ctx_, uint16_t address16, uint8_t value)
+{
+    auto *context = reinterpret_cast<ColecovisionContext*>(ctx_);
+    auto* cvhw = reinterpret_cast<ColecoHW*>(context->cvhw);
+
+    bool accepted = cvhw->io_write(address16 & 0xff, value);
+    if(!accepted) {
+        printf("OUT %d (0x%02X), 0x%02X was not handled!\n", address16, address16, value);
     }
 }
 
-struct ControllerEvent
-{
-    clk_t clk;
-    bool JoystickNotKeypad;
-    int index;
-    uint8_t bits_set;
-    uint8_t bits_cleared;
-};
+}; // extern "C" 
 
-void set_colecovision_context(ColecovisionContext *colecovision_context, RAMboard& RAM, ROMboard& BIOS, ROMboard& cartridge, ColecovisionEmulator::ColecoHW* colecohw)
-{
-    colecovision_context->RAM = RAM.bytes.data();
+}; // namespace ColecovisionEmulator
 
-    colecovision_context->BIOS.start = BIOS.base;
-    colecovision_context->BIOS.length = BIOS.length;
-    colecovision_context->BIOS.bytes = BIOS.bytes.data();
-
-    colecovision_context->cartridge.start = cartridge.base;
-    colecovision_context->cartridge.length = cartridge.length;
-    colecovision_context->cartridge.bytes = cartridge.bytes.data();
-
-    colecovision_context->cvhw = colecohw;
-}
 
 int main(int argc, char **argv)
 {
-    using namespace ColecovisionEmulator;
     using namespace PlatformInterface;
+    using namespace ColecovisionEmulator;
     using namespace std::chrono_literals;
 #ifdef PROVIDE_DEBUGGER
     bool do_debugger = false;
@@ -1995,19 +2009,20 @@ int main(int argc, char **argv)
 #endif
 
     ColecoHW* colecohw = new ColecoHW(audioSampleRate, preferredAudioBufferSampleCount, get_controller_state);
+
+    ColecovisionContext *colecovision_context = new ColecovisionContext;
+    set_colecovision_context(colecovision_context, RAM, bios_rom, cart_rom, colecohw);
+
     bool save_vdp = false;
 
     [[maybe_unused]] Debugger *debugger = NULL;
 #ifdef PROVIDE_DEBUGGER
     if(do_debugger) {
-        debugger = new Debugger(colecohw, &colecovision_context, clk);
+        debugger = new Debugger(colecohw, colecovision_context, clk);
     }
 #endif
 
     Z80Reset(&z80state);
-
-    ColecovisionContext *colecovision_context = new ColecovisionContext;
-    set_colecovision_context(colecovision_context, RAM, bios_rom, cart_rom, colecohw);
 
 #ifdef PROVIDE_DEBUGGER
     if(debugger) {
@@ -2044,13 +2059,14 @@ int main(int argc, char **argv)
                 return quit_requested;
             }
             clk_t target_clock = std::max(clk + 10000 /* machine_clock_rate / 1000 */ , clock_now);
+            target_clock = clk + machine_clock_rate / 120;
             if(false) printf("was at %llu, need to be at %llu, need %llu (%.2f ms), will run %llu (%.2f ms)\n", clk, clock_now, clock_now - clk, (clock_now - clk) * 1000.0f / machine_clock_rate, target_clock - clk, (target_clock - clk) * 1000.0f / machine_clock_rate);
 
             // XXX THIS HAS TO REMAIN 1 UNTIL I CAN ISSUE NonMaskableInterrupt PER-INSTRUCTION
             static constexpr uint32_t iterated_clock_quantum = 1; // 1;
 
 #if defined(ROSA)
-            RoDebugOverlayPrintf("%ld\n", (int)(target_clock - clk));
+            // RoDebugOverlayPrintf("%ld\n", (int)(target_clock - clk));
 #endif /* ROSA */
 
             while(clk < target_clock) {
@@ -2144,3 +2160,4 @@ int main(int argc, char **argv)
 
     return 0;
 }
+
