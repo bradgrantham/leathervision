@@ -38,11 +38,11 @@ TODO
 | star-wars-the-arcade-game-1984.rom | playable | better with trackball |
 | cabbage-patch-kids-adventures-in-the-park-1984.rom | playable | should sink into into pond? |
 | Jungle Hunt | playable | occasional "cmd_phase was reset in ISR".  top of vines should be hidden |
-| Q-bert | playable | (but known to make unknown command 0xC0 to VDP, ignored) |
+| Q-bert | playable | unknown command 0xC0 to VDP but seems harmless |
 | Pitfall II - Lost Caverns | playable | a little chirping during soundtrack - am I not doing silencing correctly? |
 | Miner 2049er | playable | weird tone at beginning |
 | Popeye | playable | strange high-pitched whistle when there seems like there should be a rest between notes during play |
-| Super Action Controller Test Cartridge | playable | is it missing some glyphs because it's assuming Atari joystick for some reason? |
-| Frogger | garbage | video and audio junk |
+| Frogger | unstable | "cmd_phase was reset in ISR" and some video corruption |
+| Super Action Controller Test Cartridge | incorrect | is it missing some glyphs because it's assuming Atari joystick for some reason? |
 | Slither | unknown | appears to work but requires Roller Controller (trackball) |
 | turbo-1982.rom | unplayable | doesn't recognize keypad to select from menu |  
