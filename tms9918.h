@@ -231,6 +231,7 @@ static void FillRowFromGraphicsI(int y, uint8_t row_colors[TMS9918A::SCREEN_X], 
             color1 = backdrop;
         }
 
+#pragma GCC unroll 8
         for(int pattern_col = 0; pattern_col < 8; pattern_col++) {
             bool bit = pattern_byte & (0x80 >> pattern_col);
             *rowp++ = bit ? color1 : color0;
@@ -273,6 +274,7 @@ static void FillRowFromGraphicsII(int y, uint8_t row_colors[TMS9918A::SCREEN_X],
             color1 = backdrop;
         }
 
+#pragma GCC unroll 8
         for(int pattern_col = 0; pattern_col < 8; pattern_col++) {
             bool bit = pattern_byte & (0x80 >> pattern_col);
             *rowp++ = bit ? color1 : color0;
@@ -375,16 +377,15 @@ static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::
                 int within_quadrant_y = within_sprite_y % 8;
                 int quadrant_y = within_sprite_y / 8;
 
+#pragma GCC unroll 8
                 for(int x = start_x; x <= end_x; x++) {
 
                     int within_sprite_x = mag2x ? ((x - sprite_x) / 2) : (x - sprite_x);
 
-                    int bit = 0;
-
                     int quadrant = quadrant_y + (within_sprite_x / 8) * 2;
                     int within_quadrant_x = within_sprite_x % 8;
                     int sprite_pattern_address = GetSpritePatternTableBase(registers) | (masked_sprite << SPRITE_NAME_SHIFT) | (quadrant << 3) | within_quadrant_y;
-                    bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
+                    int bit = memory[sprite_pattern_address] & (0x80 >> within_quadrant_x);
 
                     if(bit) {
                         if(sprite_touched[x]) {
@@ -405,13 +406,12 @@ static uint8_t AddSpritesToRowReturnFlags(int row, uint8_t row_colors[TMS9918A::
                 int sprite_pattern_address = GetSpritePatternTableBase(registers) | (sprite_name << SPRITE_NAME_SHIFT) | within_sprite_y;
                 int bitpattern = memory[sprite_pattern_address];
 
+#pragma GCC unroll 8
                 for(int x = start_x; x <= end_x; x++) {
 
                     int within_sprite_x = mag2x ? ((x - sprite_x) / 2) : (x - sprite_x);
 
-                    int bit = 0;
-
-                    bit = bitpattern & (0x80 >> within_sprite_x);
+                    int bit = bitpattern & (0x80 >> within_sprite_x);
 
                     if(bit) {
                         if(sprite_touched[x]) {
