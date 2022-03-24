@@ -40,8 +40,6 @@
 #include "rocinante.h"
 #endif
 
-// XXX *** MUST do sprite signal at scanout time *** XXX
-
 // Wrap the entire app in a namespace to protect from other apps if linked together.
 namespace ColecovisionEmulator
 {
@@ -487,7 +485,7 @@ struct TMS9918AEmulator
             }
             cmd_phase = CMD_PHASE_FIRST;
             uint8_t data = status_register;
-            status_register = 0;  
+            status_register = 0;
             return data;
         } else {
             uint8_t data = memory[read_address];
@@ -1611,12 +1609,19 @@ void usage(char *progname)
     printf("usage: %s [options] bios.bin cartridge.bin\n", progname);
     printf("\n");
     printf("options:\n");
+    printf("\t--free-run                     Don't throttle emulation to match realtime play.\n");
+    printf("\t--record-controllers file      Record controller data to file\n");
+    printf("\t--playback-controllers file    Playback controller data from file\n");
+    printf("\t                               Only one of --record-controllers or\n");
+    printf("\t                               --playback-controllers may be specified at any time.\n");
+    printf("\t--vdp-test file image          Use previously-saved contents of file as the\n");
+    printf("\t                               state for the VDP and save resulting screen as image.\n");
 #ifdef PROVIDE_DEBUGGER
-    printf("\t--debugger init          Invoke debugger on startup\n");
+    printf("\t--debugger init                Invoke debugger on startup\n");
 #endif
-    printf("\t                        \"init\" can be commands (separated by \";\"\n");
-    printf("\t                        or a filename.  The initial commands can be\n");
-    printf("\t                        the empty string.\n");
+    printf("\t                               \"init\" can be commands (separated by \";\"\n");
+    printf("\t                               or a filename.  The initial commands can be\n");
+    printf("\t                               an empty string.\n");
     printf("\n");
 }
 
@@ -1711,6 +1716,7 @@ void set_colecovision_context(ColecovisionContext *colecovision_context, RAMboar
     colecovision_context->cvhw = colecohw;
 }
 
+}; // namespace ColecovisionEmulator
 
 #if defined(ROSA)
 
@@ -1725,6 +1731,9 @@ uint32_t HAL_GetTick();
 
 #endif
 
+namespace ColecovisionEmulator
+{
+
 static void sleep_for(int32_t millis)
 {
     if(millis < 0) {
@@ -1736,6 +1745,7 @@ static void sleep_for(int32_t millis)
     std::this_thread::sleep_for(std::chrono::milliseconds(millis));
 #endif
 }
+
 
 extern "C" {
 
@@ -1767,9 +1777,9 @@ void cv_out_byte(void* ctx_, uint16_t address16, uint8_t value)
 
 }; // namespace ColecovisionEmulator
 
-
 int main(int argc, char **argv)
 {
+    bool freerun = false;
     using namespace PlatformInterface;
     using namespace ColecovisionEmulator;
     using namespace std::chrono_literals;
@@ -1807,6 +1817,10 @@ int main(int argc, char **argv)
             }
             do_vdp_test(argv[1], argv[2]);
             exit(0);
+        } else if(strcmp(argv[0], "--free-run") == 0) {
+            freerun = true;
+            argv++;
+            argc--;
         }
 
 #ifdef ENABLE_AUTOMATION
@@ -2043,7 +2057,7 @@ int main(int argc, char **argv)
     prevTick = HAL_GetTick();
 #endif
 
-    PlatformInterface::MainLoopBodyFunc main_loop_body = [colecovision_context, &clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &previous_field_start_clock, &emulation_start_time, &prevTick]() {
+    PlatformInterface::MainLoopBodyFunc main_loop_body = [colecovision_context, &clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &previous_field_start_clock, &emulation_start_time, &prevTick, freerun]() {
         (void)debugger; // If !PROVIDE_DEBUGGER then debugger is not referenced.
         (void)prevTick; // If !ROSA then prevTick is not referenced. // XXX move iterate call to platform main loop
 
@@ -2057,7 +2071,7 @@ int main(int argc, char **argv)
             std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
             auto micros_since_start = std::chrono::duration_cast<std::chrono::microseconds>(now - emulation_start_time);
             clk_t clock_now = machine_clock_rate * micros_since_start.count() / 1000000;
-            if(clock_now < clk) {
+            if((!freerun) && (clock_now < clk)) {
                 /* if we get ahead somehow, sleep a little to fall back */
                 sleep_for(2); // 1ms);
                 return quit_requested;
