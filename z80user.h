@@ -184,6 +184,11 @@ static inline void cv_write_word(void *ctx_, uint32_t address32, uint16_t word)
     }
 }
 
+static inline void cv_process_cycles(void *ctx_, int cycles)
+{
+    ColecovisionContext *ctx = (ColecovisionContext*)ctx_;
+}
+
 #define Z80_WRITE_WORD(address32, x) { cv_write_word((context), (address32), (x)); }
 
 #define Z80_WRITE_WORD_INTERRUPT(address32, x)	Z80_WRITE_WORD((address32), (x))
@@ -191,6 +196,9 @@ static inline void cv_write_word(void *ctx_, uint32_t address32, uint16_t word)
 #define Z80_INPUT_BYTE(port16, x) { (x) = cv_in_byte((context), (port16)); }
 
 #define Z80_OUTPUT_BYTE(port16, x) { cv_out_byte((context), (port16), (x)); }
+
+// process the number of clocks emulated
+#define Z80_PROCESS_CYCLES(cycles) { cv_process_cycles((context), (cycles)); }
 
 #ifdef __cplusplus
 }
