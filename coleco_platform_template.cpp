@@ -192,7 +192,7 @@ void Start(uint32_t& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 
     then = std::chrono::system_clock::now();
 
-    printf("\033[2J");
+    // printf("\033[2J");
 }
 
 int frameCount = 0;
@@ -238,7 +238,7 @@ void display_frame()
             }
             puts("");
         }
-    } else {
+    } else if(false) {
         static char buffer[TMS9918A::SCREEN_X * TMS9918A::SCREEN_Y * 3 + 128]; // XXX image plus header
         int bytesToEncode = sprintf(buffer, "P6 %d %d 255\n", TMS9918A::SCREEN_X, TMS9918A::SCREEN_Y);
         memcpy(buffer + bytesToEncode, framebuffer, sizeof(framebuffer));
@@ -262,18 +262,21 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
         pixel[2] = b;
     };
 
-    vdp_status_result = TMS9918A::CreateImageAndReturnFlags(vdp_registers, vdp_ram, pixel_setter);
+    // vdp_status_result = TMS9918A::CreateImageAndReturnFlags(vdp_registers, vdp_ram, pixel_setter);
 
     if(frameCount++ % 10 == 0) {
-        printf("\033[H");
+        // printf("\033[H");
+        // printf("frame %d\n", frameCount);
+        // printf("enqueued %zd audio samples\n", enqueued_audio_samples);
+        // display_frame();
+    }
+    if(frameCount++ % 1000 == 0) {
         printf("frame %d\n", frameCount);
-        printf("enqueued %zd audio samples\n", enqueued_audio_samples);
-        display_frame();
     }
 
     std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
     auto elapsed_micros = std::chrono::duration_cast<std::chrono::microseconds>(now - then);
-    std::this_thread::sleep_for(16666us - elapsed_micros); // 60Hz
+    // std::this_thread::sleep_for(16666us - elapsed_micros); // 60Hz
 
     then = now;
 }

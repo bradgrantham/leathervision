@@ -262,22 +262,22 @@ struct SN76489A
     void advance_noise_to_clock(clk_t flips)
     {
         if(false) {
-        for(int i = 0; i < flips; i++) {
-            noise_flipflop ^= 1;
+            for(int i = 0; i < flips; i++) {
+                noise_flipflop ^= 1;
 
-            if(noise_flipflop) {
-                uint8_t noise_bit = noise_register & 0x1;
-                uint8_t new_bit;
+                if(noise_flipflop) {
+                    uint8_t noise_bit = noise_register & 0x1;
+                    uint8_t new_bit;
 
-                if(noise_config == 1) {
-                    new_bit = (noise_register & 0x1) ^ ((noise_register & 0x8) >> 3);
-                } else {
-                    new_bit = noise_bit;
+                    if(noise_config == 1) {
+                        new_bit = (noise_register & 0x1) ^ ((noise_register & 0x8) >> 3);
+                    } else {
+                        new_bit = noise_bit;
+                    }
+
+                    noise_register = (noise_register >> 1) | (new_bit << 15);
                 }
-
-                noise_register = (noise_register >> 1) | (new_bit << 15);
             }
-        }
         } else {
             if(noise_config == 1) {
                 for(int i = 0; i < flips; i++) {
@@ -395,8 +395,12 @@ struct TMS9918AEmulator
     uint16_t read_address = 0x0;
     uint16_t write_address = 0x0;
 
-    TMS9918AEmulator()
+    uint32_t& interrupt_status; /* uint32_t for interop with C */
+
+    TMS9918AEmulator(uint32_t &interrupt_status) :
+        interrupt_status(interrupt_status)
     {
+        interrupt_status = 0;
     }
 
     void reset()
@@ -405,10 +409,31 @@ struct TMS9918AEmulator
         std::fill(memory.begin(), memory.end(), 0);
     }
 
+    void clear_status_register_bits(uint8_t b)
+    {
+        using namespace TMS9918A;
+        status_register = status_register & ~b;
+        interrupt_status = InterruptsAreEnabled(registers.data()) && VSyncInterruptHasOccurred(status_register);
+    }
+
+    void set_status_register_bits(uint8_t b)
+    {
+        using namespace TMS9918A;
+        status_register = status_register | b;
+        interrupt_status = InterruptsAreEnabled(registers.data()) && VSyncInterruptHasOccurred(status_register);
+    }
+
+    void set_register(uint8_t which_register, uint8_t data)
+    {
+        using namespace TMS9918A;
+        registers[which_register] = cmd_data;
+        interrupt_status = InterruptsAreEnabled(registers.data()) && VSyncInterruptHasOccurred(status_register);
+    }
+
     void vsync()
     {
         using namespace TMS9918A;
-        status_register |= VDP_STATUS_F_BIT;
+        set_status_register_bits(VDP_STATUS_F_BIT);
     }
 
     void write(uint8_t cmd, uint8_t data)
@@ -457,7 +482,7 @@ struct TMS9918AEmulator
                 if(cmd == CMD_SET_REGISTER) {
                     uint8_t which_register = data & REG_A0_A5_MASK;
                     if(debug & DEBUG_VDP_OPERATIONS) printf("VDP command write to register 0x%02X, value 0x%02X\n", which_register, cmd_data);
-                    registers[which_register] = cmd_data;
+                    set_register(which_register, cmd_data);
                 } else if(cmd == CMD_SET_WRITE_ADDRESS) {
                     write_address = ((data & REG_A0_A5_MASK) << 8) | cmd_data;
                     if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write address set to 0x%04X\n", write_address);
@@ -507,7 +532,7 @@ struct TMS9918AEmulator
             }
             cmd_phase = CMD_PHASE_FIRST;
             uint8_t data = status_register;
-            status_register = 0;
+            clear_status_register_bits(status_register);
             return data;
         } else {
             uint8_t data = memory[read_address];
@@ -525,13 +550,8 @@ struct TMS9918AEmulator
             printf("scanout frame %lu\n", frame_number);
         }
 
-        status_register |= scanout(registers.data(), memory.data());
-    }
-
-    bool nmi_required()
-    {
-        using namespace TMS9918A;
-        return InterruptsAreEnabled(registers.data()) && VSyncInterruptHasOccurred(status_register);
+        uint8_t scanout_status_set = scanout(registers.data(), memory.data());
+        set_status_register_bits(scanout_status_set);
     }
 };
 
@@ -540,6 +560,8 @@ typedef std::function<uint8_t (int index, bool JoystickNotKeypad)> GetController
 struct ColecoHW
 {
     TMS9918AEmulator vdp;
+    uint32_t vdp_interrupt_status{0};
+
     SN76489A sound;
 
     bool reading_joystick = true;
@@ -561,6 +583,7 @@ struct ColecoHW
     std::map<uint16_t, uint8_t> io_writes;
 
     ColecoHW(uint32_t sample_rate, size_t audio_buffer_size, GetControllerStateFunc get_controller_state) :
+        vdp(vdp_interrupt_status),
         sound(machine_clock_rate, sample_rate, audio_buffer_size),
         get_controller_state(get_controller_state)
     {
@@ -679,11 +702,6 @@ struct ColecoHW
     {
         vdp.reset();
         sound.reset();
-    }
-
-    bool nmi_required()
-    {
-        return vdp.nmi_required();
     }
 
     void fill_flush_audio(clk_t clk, audio_flush_func audio_flush)
@@ -1723,7 +1741,19 @@ struct ControllerEvent
     uint8_t bits_cleared;
 };
 
-void set_colecovision_context(ColecovisionContext *colecovision_context, RAMboard& RAM, ROMboard& BIOS, ROMboard& cartridge, ColecoHW* colecohw)
+typedef std::function<void(uint64_t)> VRetraceFunc;
+
+struct VRetraceWrapper
+{
+    VRetraceFunc vretrace;
+    VRetraceWrapper(VRetraceFunc vretrace) : vretrace(vretrace) {};
+    void invoke(uint64_t clock_delta)
+    {
+        vretrace(clock_delta);
+    }
+};
+
+void set_colecovision_context(ColecovisionContext *colecovision_context, RAMboard& RAM, ROMboard& BIOS, ROMboard& cartridge, ColecoHW* colecohw, uint32_t* nmi, VRetraceWrapper *vretrace_wrapper, int64_t* clk)
 {
     colecovision_context->RAM = RAM.bytes.data();
 
@@ -1736,6 +1766,13 @@ void set_colecovision_context(ColecovisionContext *colecovision_context, RAMboar
     colecovision_context->cartridge.bytes = cartridge.bytes.data();
 
     colecovision_context->cvhw = colecohw;
+    colecovision_context->vretrace_wrapper = vretrace_wrapper;
+    colecovision_context->nmi = nmi;
+
+    colecovision_context->clk = clk;
+    colecovision_context->clocks_per_retrace = clocks_per_retrace;
+    colecovision_context->next_field_start_clock = clocks_per_retrace;
+    colecovision_context->nmi_was_issued = 0;
 }
 
 }; // namespace ColecovisionEmulator
@@ -2048,12 +2085,25 @@ int main(int argc, char **argv)
 
 #endif
 
+    bool save_vdp = false;
+
     ColecoHW* colecohw = new ColecoHW(audioSampleRate, preferredAudioBufferSampleCount, get_controller_state);
 
-    ColecovisionContext *colecovision_context = new ColecovisionContext;
-    set_colecovision_context(colecovision_context, RAM, bios_rom, cart_rom, colecohw);
+    VRetraceFunc do_vretrace_work = [colecohw, &clk, platform_scanout, audio_flush, &save_vdp](uint64_t clock_delta) {
+        colecohw->vdp.perform_scanout(platform_scanout);
+        if(save_vdp) {
+            static int which = 0;
+            SaveVDPState(&colecohw->vdp, which++);
+            save_vdp = false;
+        }
 
-    bool save_vdp = false;
+        colecohw->vdp.vsync();
+        colecohw->fill_flush_audio(clk + clock_delta, audio_flush);
+    };
+
+    ColecovisionContext *colecovision_context = new ColecovisionContext;
+    VRetraceWrapper *vretrace_wrapper = new VRetraceWrapper(do_vretrace_work);
+    set_colecovision_context(colecovision_context, RAM, bios_rom, cart_rom, colecohw, &colecohw->vdp_interrupt_status, vretrace_wrapper, &clk);
 
     [[maybe_unused]] Debugger *debugger = NULL;
 #ifdef PROVIDE_DEBUGGER
@@ -2139,29 +2189,25 @@ int main(int argc, char **argv)
                 }
 #endif
                 clk += clocks_this_step;
-
-                uint64_t retrace_before = previous_field_start_clock / clocks_per_retrace;
-                uint64_t retrace_after = clk / clocks_per_retrace;
-                if(retrace_before != retrace_after) {
-                    colecohw->vdp.perform_scanout(platform_scanout);
-                    if(save_vdp) {
-                        static int which = 0;
-                        SaveVDPState(&colecohw->vdp, which++);
-                        save_vdp = false;
+                {
+                    uint64_t retrace_before = previous_field_start_clock / clocks_per_retrace;
+                    uint64_t retrace_after = clk / clocks_per_retrace;
+                    if(retrace_before != retrace_after) {
+                        auto wrapper = reinterpret_cast<VRetraceWrapper*>(colecovision_context->vretrace_wrapper);
+                        wrapper->invoke(0);
+                        // do_vretrace_work(colecohw);
+                        previous_field_start_clock = clk;
                     }
 
-                    colecohw->vdp.vsync();
-                    colecohw->fill_flush_audio(clk, audio_flush);
-                    previous_field_start_clock = clk;
-                }
-
-                if(colecohw->nmi_required()) {
-                    if(!nmi_was_issued) {
-                        clk += Z80NonMaskableInterrupt (&z80state, colecovision_context);
-                        nmi_was_issued = true;
+                    auto* cvhw = reinterpret_cast<ColecoHW*>(colecovision_context->cvhw);
+                    if(cvhw->vdp_interrupt_status) {
+                        if(!nmi_was_issued) {
+                            clk += Z80NonMaskableInterrupt (&z80state, colecovision_context);
+                            nmi_was_issued = true;
+                        }
+                    } else {
+                        nmi_was_issued = false;
                     }
-                } else {
-                    nmi_was_issued = false;
                 }
             }
 

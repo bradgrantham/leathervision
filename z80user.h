@@ -107,6 +107,12 @@ typedef struct ColecovisionContext
     Z80MemoryInfo cartridge;
     uint8_t* RAM;
     void* cvhw;
+    uint32_t* nmi;
+    void *vretrace_wrapper;
+    int64_t* clk;
+    int64_t next_field_start_clock;
+    uint32_t clocks_per_retrace;
+    int nmi_was_issued;
 } ColecovisionContext;
 
 static inline uint8_t cv_read_byte(void *ctx_, uint32_t address32)
