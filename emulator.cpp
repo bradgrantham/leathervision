@@ -2189,24 +2189,26 @@ int main(int argc, char **argv)
 #endif
                 clk += clocks_this_step;
                 {
+                    auto* ctx = colecovision_context;
+
                     uint64_t retrace_before = previous_field_start_clock / clocks_per_retrace;
-                    uint64_t retrace_after = clk / clocks_per_retrace;
+                    uint64_t retrace_after = *ctx->clk / clocks_per_retrace;
                     if(retrace_before != retrace_after) {
-                        auto wrapper = reinterpret_cast<VRetraceWrapper*>(colecovision_context->vretrace_wrapper);
+                        auto wrapper = reinterpret_cast<VRetraceWrapper*>(ctx->vretrace_wrapper);
                         wrapper->invoke(0);
                         // do_vretrace_work(colecohw);
-                        previous_field_start_clock = clk;
+                        previous_field_start_clock = *ctx->clk;
                     }
 
-                        auto* cvhw = reinterpret_cast<ColecoHW*>(colecovision_context->cvhw);
-                        if(cvhw->vdp_interrupt_status) {
-                            if(!colecovision_context->nmi_was_issued) {
-                                clk += Z80NonMaskableInterrupt (&z80state, colecovision_context);
-                                colecovision_context->nmi_was_issued = true;
-                            }
-                        } else {
-                            colecovision_context->nmi_was_issued = false;
+                    auto* cvhw = reinterpret_cast<ColecoHW*>(ctx->cvhw);
+                    if(cvhw->vdp_interrupt_status) {
+                        if(!ctx->nmi_was_issued) {
+                            *ctx->clk += Z80NonMaskableInterrupt (&z80state, ctx);
+                            ctx->nmi_was_issued = true;
                         }
+                    } else {
+                        ctx->nmi_was_issued = false;
+                    }
                 }
             }
 
