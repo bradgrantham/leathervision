@@ -2191,13 +2191,10 @@ int main(int argc, char **argv)
                 {
                     auto* ctx = colecovision_context;
 
-                    uint64_t retrace_before = previous_field_start_clock / clocks_per_retrace;
-                    uint64_t retrace_after = *ctx->clk / clocks_per_retrace;
-                    if(retrace_before != retrace_after) {
+                    if(*ctx->clk > ctx->next_field_start_clock) {
                         auto wrapper = reinterpret_cast<VRetraceWrapper*>(ctx->vretrace_wrapper);
                         wrapper->invoke(0);
-                        // do_vretrace_work(colecohw);
-                        previous_field_start_clock = *ctx->clk;
+                        ctx->next_field_start_clock += ctx->clocks_per_retrace;
                     }
 
                     auto* cvhw = reinterpret_cast<ColecoHW*>(ctx->cvhw);
