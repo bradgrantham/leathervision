@@ -2121,7 +2121,6 @@ int main(int argc, char **argv)
     }
 #endif
 
-    bool nmi_was_issued = false;
     clk_t previous_field_start_clock = clk;
     std::chrono::time_point<std::chrono::system_clock> emulation_start_time = std::chrono::system_clock::now();
     uint32_t prevTick;
@@ -2129,7 +2128,7 @@ int main(int argc, char **argv)
     prevTick = HAL_GetTick();
 #endif
 
-    PlatformInterface::MainLoopBodyFunc main_loop_body = [colecovision_context, &clk, debugger, colecohw, &nmi_was_issued, &save_vdp, audio_flush, platform_scanout, &previous_field_start_clock, &emulation_start_time, &prevTick, freerun]() {
+    PlatformInterface::MainLoopBodyFunc main_loop_body = [colecovision_context, &clk, debugger, colecohw, &save_vdp, audio_flush, platform_scanout, &previous_field_start_clock, &emulation_start_time, &prevTick, freerun]() {
         (void)debugger; // If !PROVIDE_DEBUGGER then debugger is not referenced.
         (void)prevTick; // If !ROSA then prevTick is not referenced. // XXX move iterate call to platform main loop
 
@@ -2153,7 +2152,7 @@ int main(int argc, char **argv)
             if(false) printf("was at %llu, need to be at %llu, need %llu (%.2f ms), will run %llu (%.2f ms)\n", clk, clock_now, clock_now - clk, (clock_now - clk) * 1000.0f / machine_clock_rate, target_clock - clk, (target_clock - clk) * 1000.0f / machine_clock_rate);
 
             // XXX THIS HAS TO REMAIN 1 UNTIL I CAN ISSUE NonMaskableInterrupt PER-INSTRUCTION
-            static constexpr uint32_t iterated_clock_quantum = 1; // 1;
+            static constexpr uint32_t iterated_clock_quantum = 1;
 
 #if defined(ROSA)
             // RoDebugOverlayPrintf("%ld\n", (int)(target_clock - clk));
@@ -2199,15 +2198,15 @@ int main(int argc, char **argv)
                         previous_field_start_clock = clk;
                     }
 
-                    auto* cvhw = reinterpret_cast<ColecoHW*>(colecovision_context->cvhw);
-                    if(cvhw->vdp_interrupt_status) {
-                        if(!nmi_was_issued) {
-                            clk += Z80NonMaskableInterrupt (&z80state, colecovision_context);
-                            nmi_was_issued = true;
+                        auto* cvhw = reinterpret_cast<ColecoHW*>(colecovision_context->cvhw);
+                        if(cvhw->vdp_interrupt_status) {
+                            if(!colecovision_context->nmi_was_issued) {
+                                clk += Z80NonMaskableInterrupt (&z80state, colecovision_context);
+                                colecovision_context->nmi_was_issued = true;
+                            }
+                        } else {
+                            colecovision_context->nmi_was_issued = false;
                         }
-                    } else {
-                        nmi_was_issued = false;
-                    }
                 }
             }
 
