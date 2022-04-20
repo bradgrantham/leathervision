@@ -1741,19 +1741,7 @@ struct ControllerEvent
     uint8_t bits_cleared;
 };
 
-typedef std::function<void(uint64_t)> VRetraceFunc;
-
-struct VRetraceWrapper
-{
-    VRetraceFunc vretrace;
-    VRetraceWrapper(VRetraceFunc vretrace) : vretrace(vretrace) {};
-    void invoke(uint64_t clk)
-    {
-        vretrace(clk);
-    }
-};
-
-void set_colecovision_context(ColecovisionContext *colecovision_context, RAMboard& RAM, ROMboard& BIOS, ROMboard& cartridge, ColecoHW* colecohw, uint32_t* nmi, VRetraceWrapper *vretrace_wrapper, int64_t* clk)
+void set_colecovision_context(ColecovisionContext *colecovision_context, RAMboard& RAM, ROMboard& BIOS, ROMboard& cartridge, ColecoHW* colecohw, int64_t* clk, uint32_t* nmi)
 {
     colecovision_context->RAM = RAM.bytes.data();
 
@@ -1766,13 +1754,15 @@ void set_colecovision_context(ColecovisionContext *colecovision_context, RAMboar
     colecovision_context->cartridge.bytes = cartridge.bytes.data();
 
     colecovision_context->cvhw = colecohw;
-    colecovision_context->vretrace_wrapper = vretrace_wrapper;
-    colecovision_context->nmi = nmi;
 
     colecovision_context->clk = clk;
     colecovision_context->clocks_per_retrace = clocks_per_retrace;
     colecovision_context->next_field_start_clock = clocks_per_retrace;
-    colecovision_context->nmi_was_issued = 0;
+    colecovision_context->do_vretrace_work = 0;
+
+    colecovision_context->nmi = nmi;
+    colecovision_context->nmi_was_issued = false;
+    colecovision_context->do_nmi = 0;
 }
 
 }; // namespace ColecovisionEmulator
@@ -1807,13 +1797,6 @@ static void sleep_for(int32_t millis)
 
 extern "C" {
 
-void cv_do_vretrace(void *wrapper_, uint64_t clk)
-{
-    using namespace ColecovisionEmulator;
-    auto wrapper = reinterpret_cast<VRetraceWrapper*>(wrapper_);
-    wrapper->invoke(clk);
-}
-
 uint8_t cv_in_byte(void* ctx_, uint16_t address16)
 {
     auto *context = reinterpret_cast<ColecovisionContext*>(ctx_);
@@ -1842,29 +1825,6 @@ void cv_out_byte(void* ctx_, uint16_t address16, uint8_t value)
 
 }; // namespace ColecovisionEmulator
 
-extern "C" {
-
-extern void cv_do_vretrace(void *wrapper, uint64_t clk);
-
-static inline void cv_process_cycles2(void *ctx_, Z80_STATE* z80state, int cycles)
-{
-    ColecovisionContext *ctx = (ColecovisionContext*)ctx_;
-    if((*ctx->clk) + cycles > ctx->next_field_start_clock) {
-        cv_do_vretrace(ctx->vretrace_wrapper, *ctx->clk + cycles);
-        ctx->next_field_start_clock += ctx->clocks_per_retrace;
-    }
-
-    if(*ctx->nmi) {
-        if(!ctx->nmi_was_issued) {
-            *ctx->clk += Z80NonMaskableInterrupt (z80state, ctx);
-            ctx->nmi_was_issued = true;
-        }
-    } else {
-        ctx->nmi_was_issued = false;
-    }
-}
-
-};
 
 int main(int argc, char **argv)
 {
@@ -2119,21 +2079,8 @@ int main(int argc, char **argv)
 
     ColecoHW* colecohw = new ColecoHW(audioSampleRate, preferredAudioBufferSampleCount, get_controller_state);
 
-    VRetraceFunc do_vretrace_work = [colecohw, platform_scanout, audio_flush, &save_vdp](uint64_t clk) {
-        colecohw->vdp.perform_scanout(platform_scanout);
-        if(save_vdp) {
-            static int which = 0;
-            SaveVDPState(&colecohw->vdp, which++);
-            save_vdp = false;
-        }
-
-        colecohw->vdp.vsync();
-        colecohw->fill_flush_audio(clk, audio_flush);
-    };
-
     ColecovisionContext *colecovision_context = new ColecovisionContext;
-    VRetraceWrapper *vretrace_wrapper = new VRetraceWrapper(do_vretrace_work);
-    set_colecovision_context(colecovision_context, RAM, bios_rom, cart_rom, colecohw, &colecohw->vdp_interrupt_status, vretrace_wrapper, &clk);
+    set_colecovision_context(colecovision_context, RAM, bios_rom, cart_rom, colecohw, &clk, &colecohw->vdp_interrupt_status);
 
     [[maybe_unused]] Debugger *debugger = NULL;
 #ifdef PROVIDE_DEBUGGER
@@ -2151,14 +2098,13 @@ int main(int argc, char **argv)
     }
 #endif
 
-    clk_t previous_field_start_clock = clk;
     std::chrono::time_point<std::chrono::system_clock> emulation_start_time = std::chrono::system_clock::now();
     uint32_t prevTick;
 #if defined(ROSA)
     prevTick = HAL_GetTick();
 #endif
 
-    PlatformInterface::MainLoopBodyFunc main_loop_body = [colecovision_context, &clk, debugger, colecohw, &save_vdp, audio_flush, platform_scanout, &previous_field_start_clock, &emulation_start_time, &prevTick, freerun]() {
+    PlatformInterface::MainLoopBodyFunc main_loop_body = [colecovision_context, &clk, debugger, colecohw, &save_vdp, audio_flush, platform_scanout, &emulation_start_time, &prevTick, freerun]() {
         (void)debugger; // If !PROVIDE_DEBUGGER then debugger is not referenced.
         (void)prevTick; // If !ROSA then prevTick is not referenced. // XXX move iterate call to platform main loop
 
@@ -2189,6 +2135,7 @@ int main(int argc, char **argv)
 #endif /* ROSA */
 
             while(clk < target_clock) {
+#if 0
                 std::string dummy;
                 {
                     static int which = 0;
@@ -2201,7 +2148,37 @@ int main(int argc, char **argv)
                 uint8_t byte = cv_read_byte(colecovision_context, z80state.pc);
                 bool is_HALT = byte == 0x76;
                 // printf("PC is %04X\n", z80state.pc);
+#endif
+
                 clk_t clocks_this_step = Z80Emulate(&z80state, iterated_clock_quantum, colecovision_context);
+                clk += clocks_this_step;
+
+		// If Z80_PROCESS_CYCLES in z80user.h detects the clock
+                // crossed a video field boundary, it sets "do_vretrace_work"
+                // and causes Emulate to return early.
+                if(colecovision_context->do_vretrace_work) {
+                    colecovision_context->do_vretrace_work = 0;
+                    
+                    colecohw->vdp.perform_scanout(platform_scanout);
+                    if(save_vdp) {
+                        static int which = 0;
+                        SaveVDPState(&colecohw->vdp, which++);
+                        save_vdp = false;
+                    }
+
+                    colecohw->vdp.vsync();
+                    colecohw->fill_flush_audio(clk, audio_flush);
+                }
+
+		// If Z80_PROCESS_CYCLES in z80user.h detects NMI
+		// was asserted (from the VDP vretrace and VDP registers),
+		// it sets "do_nmi" and causes Emulate to return early.
+                if(colecovision_context->do_nmi) {
+                    colecovision_context->do_nmi = 0;
+                    clk += Z80NonMaskableInterrupt (&z80state, colecovision_context);
+                }
+
+#if 0
                 if(false && is_HALT) {
                     printf("VDP status register = %02X\n", colecohw->vdp.status_register);
                     printf("VDP interrupts %s\n", TMS9918A::InterruptsAreEnabled(colecohw->vdp.registers.data()) ? "enabled" : "disabled");
@@ -2209,6 +2186,8 @@ int main(int argc, char **argv)
                     printf("im = %d\n", z80state.im);
                     printf("HALT took %llu clocks\n", clocks_this_step);
                 }
+#endif
+
 #ifdef PROVIDE_DEBUGGER
                 if(debugger) {
                     if(enter_debugger || debugger->should_debug(&z80state)) {
@@ -2217,10 +2196,6 @@ int main(int argc, char **argv)
                     }
                 }
 #endif
-                int cycles = clocks_this_step;
-                auto* ctx = colecovision_context;
-                cv_process_cycles2(colecovision_context, &z80state, cycles);
-                clk += clocks_this_step;
             }
 
 #if defined(ROSA)
