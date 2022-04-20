@@ -261,41 +261,22 @@ struct SN76489A
 
     void advance_noise_to_clock(clk_t flips)
     {
-        if(false) {
+        if(noise_config == 1) {
             for(int i = 0; i < flips; i++) {
                 noise_flipflop ^= 1;
 
                 if(noise_flipflop) {
-                    uint8_t noise_bit = noise_register & 0x1;
-                    uint8_t new_bit;
-
-                    if(noise_config == 1) {
-                        new_bit = (noise_register & 0x1) ^ ((noise_register & 0x8) >> 3);
-                    } else {
-                        new_bit = noise_bit;
-                    }
+                    uint8_t new_bit = (noise_register & 0x1) ^ ((noise_register & 0x8) >> 3);
 
                     noise_register = (noise_register >> 1) | (new_bit << 15);
                 }
             }
         } else {
-            if(noise_config == 1) {
-                for(int i = 0; i < flips; i++) {
-                    noise_flipflop ^= 1;
+            for(int i = 0; i < flips; i++) {
+                noise_flipflop ^= 1;
 
-                    if(noise_flipflop) {
-                        uint8_t new_bit = (noise_register & 0x1) ^ ((noise_register & 0x8) >> 3);
-
-                        noise_register = (noise_register >> 1) | (new_bit << 15);
-                    }
-                }
-            } else {
-                for(int i = 0; i < flips; i++) {
-                    noise_flipflop ^= 1;
-
-                    if(noise_flipflop) {
-                        noise_register = (noise_register >> 1) | ((noise_register & 0x1) << 15);
-                    }
+                if(noise_flipflop) {
+                    noise_register = (noise_register >> 1) | ((noise_register & 0x1) << 15);
                 }
             }
         }
