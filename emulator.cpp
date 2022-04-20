@@ -1747,9 +1747,9 @@ struct VRetraceWrapper
 {
     VRetraceFunc vretrace;
     VRetraceWrapper(VRetraceFunc vretrace) : vretrace(vretrace) {};
-    void invoke(uint64_t clock_delta)
+    void invoke(uint64_t clk)
     {
-        vretrace(clock_delta);
+        vretrace(clk);
     }
 };
 
@@ -1805,8 +1805,14 @@ static void sleep_for(int32_t millis)
 #endif
 }
 
-
 extern "C" {
+
+void cv_do_vretrace(void *wrapper_, uint64_t clk)
+{
+    using namespace ColecovisionEmulator;
+    auto wrapper = reinterpret_cast<VRetraceWrapper*>(wrapper_);
+    wrapper->invoke(clk);
+}
 
 uint8_t cv_in_byte(void* ctx_, uint16_t address16)
 {
@@ -1835,6 +1841,30 @@ void cv_out_byte(void* ctx_, uint16_t address16, uint8_t value)
 }; // extern "C" 
 
 }; // namespace ColecovisionEmulator
+
+extern "C" {
+
+extern void cv_do_vretrace(void *wrapper, uint64_t clk);
+
+static inline void cv_process_cycles2(void *ctx_, Z80_STATE* z80state, int cycles)
+{
+    ColecovisionContext *ctx = (ColecovisionContext*)ctx_;
+    if((*ctx->clk) + cycles > ctx->next_field_start_clock) {
+        cv_do_vretrace(ctx->vretrace_wrapper, *ctx->clk + cycles);
+        ctx->next_field_start_clock += ctx->clocks_per_retrace;
+    }
+
+    if(*ctx->nmi) {
+        if(!ctx->nmi_was_issued) {
+            *ctx->clk += Z80NonMaskableInterrupt (z80state, ctx);
+            ctx->nmi_was_issued = true;
+        }
+    } else {
+        ctx->nmi_was_issued = false;
+    }
+}
+
+};
 
 int main(int argc, char **argv)
 {
@@ -2089,7 +2119,7 @@ int main(int argc, char **argv)
 
     ColecoHW* colecohw = new ColecoHW(audioSampleRate, preferredAudioBufferSampleCount, get_controller_state);
 
-    VRetraceFunc do_vretrace_work = [colecohw, &clk, platform_scanout, audio_flush, &save_vdp](uint64_t clock_delta) {
+    VRetraceFunc do_vretrace_work = [colecohw, platform_scanout, audio_flush, &save_vdp](uint64_t clk) {
         colecohw->vdp.perform_scanout(platform_scanout);
         if(save_vdp) {
             static int which = 0;
@@ -2098,7 +2128,7 @@ int main(int argc, char **argv)
         }
 
         colecohw->vdp.vsync();
-        colecohw->fill_flush_audio(clk + clock_delta, audio_flush);
+        colecohw->fill_flush_audio(clk, audio_flush);
     };
 
     ColecovisionContext *colecovision_context = new ColecovisionContext;
@@ -2187,26 +2217,10 @@ int main(int argc, char **argv)
                     }
                 }
 #endif
+                int cycles = clocks_this_step;
+                auto* ctx = colecovision_context;
+                cv_process_cycles2(colecovision_context, &z80state, cycles);
                 clk += clocks_this_step;
-                {
-                    auto* ctx = colecovision_context;
-
-                    if(*ctx->clk > ctx->next_field_start_clock) {
-                        auto wrapper = reinterpret_cast<VRetraceWrapper*>(ctx->vretrace_wrapper);
-                        wrapper->invoke(0);
-                        ctx->next_field_start_clock += ctx->clocks_per_retrace;
-                    }
-
-                    auto* cvhw = reinterpret_cast<ColecoHW*>(ctx->cvhw);
-                    if(cvhw->vdp_interrupt_status) {
-                        if(!ctx->nmi_was_issued) {
-                            *ctx->clk += Z80NonMaskableInterrupt (&z80state, ctx);
-                            ctx->nmi_was_issued = true;
-                        }
-                    } else {
-                        ctx->nmi_was_issued = false;
-                    }
-                }
             }
 
 #if defined(ROSA)
