@@ -13,6 +13,7 @@ LDLIBS_GLFW=-lreadline -lao -lglfw -framework OpenGL -framework Cocoa -framework
 LDLIBS_SDL=-lreadline -lSDL2 -framework OpenGL -framework Cocoa -framework IOkit
 CXXFLAGS=-Wall -I/opt/local/include -I$(BG80D_PATH) -DUSE_BG80D=$(USE_BG80D) -std=c++17 $(OPT) -fsigned-char -DGL_SILENCE_DEPRECATION
 CFLAGS	+=	-fsigned-char
+CFLAGS	+=	-Wall $(OPT)
 
 VPATH=$(BG80D_PATH)
 
