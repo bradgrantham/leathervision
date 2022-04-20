@@ -2166,8 +2166,9 @@ int main(int argc, char **argv)
                     }
 
                     colecohw->vdp.vsync();
-                    colecohw->fill_flush_audio(clk, audio_flush);
                 }
+
+                colecohw->fill_flush_audio(clk, audio_flush);
 
 		// If Z80_PROCESS_CYCLES in z80user.h detects NMI
 		// was asserted (from the VDP vretrace and VDP registers),
