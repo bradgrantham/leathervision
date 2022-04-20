@@ -2127,8 +2127,7 @@ int main(int argc, char **argv)
             target_clock = clk + machine_clock_rate / 120;
             if(false) printf("was at %llu, need to be at %llu, need %llu (%.2f ms), will run %llu (%.2f ms)\n", clk, clock_now, clock_now - clk, (clock_now - clk) * 1000.0f / machine_clock_rate, target_clock - clk, (target_clock - clk) * 1000.0f / machine_clock_rate);
 
-            // XXX THIS HAS TO REMAIN 1 UNTIL I CAN ISSUE NonMaskableInterrupt PER-INSTRUCTION
-            static constexpr uint32_t iterated_clock_quantum = 1;
+            static constexpr uint32_t iterated_clock_quantum = 10000;
 
 #if defined(ROSA)
             // RoDebugOverlayPrintf("%ld\n", (int)(target_clock - clk));
