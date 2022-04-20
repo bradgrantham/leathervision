@@ -35,10 +35,10 @@ TODO
 | flapee-byrd-2014.rom | playable | |
 | gorf-1983.rom | playable | |
 | venture-1982.rom | playable | should beginning block of "?" be something? | 
-| star-wars-the-arcade-game-1984.rom | playable | better with trackball |
-| cabbage-patch-kids-adventures-in-the-park-1984.rom | playable | should sink into into pond? |
+| star-wars-the-arcade-game-1984.rom | playable | needs trackball |
+| cabbage-patch-kids-adventures-in-the-park-1984.rom | playable | lots of unhandled I/O, should sink into into pond? |
 | Jungle Hunt | playable | occasional "cmd_phase was reset in ISR".  top of vines should be hidden |
-| Q-bert | playable | unknown command 0xC0 to VDP but seems harmless |
+| Q-bert | playable | swearing sound is cut off, unknown command 0xC0 to VDP but seems harmless |
 | Pitfall II - Lost Caverns | playable | a little chirping during soundtrack - am I not doing silencing correctly? |
 | Miner 2049er | playable | weird tone at beginning |
 | Popeye | playable | strange high-pitched whistle when there seems like there should be a rest between notes during play |
