@@ -388,8 +388,10 @@ static void AddSpritesToRow(int row, uint8_t row_colors[TMS9918A::SCREEN_X], con
                 if(bit) {
                     if(!sprite_touched[x]) {
                         sprite_touched[x] = true;
-                        if(sprite_color != TRANSPARENT_COLOR_INDEX) {
-                            row_colors[x] = sprite_color;
+                        if(row_colors) {
+                            if(sprite_color != TRANSPARENT_COLOR_INDEX) {
+                                row_colors[x] = sprite_color;
+                            }
                         }
                     } else {
                         flags_set |= VDP_STATUS_C_BIT;
@@ -472,21 +474,15 @@ static uint8_t CreateImageAndReturnFlags(const uint8_t* registers, const uint8_t
     return flags_set;
 }
 
-static uint8_t GetStatusFromSpriteConfiguration(const uint8_t* registers, const uint8_t* memory)
+[[maybe_unused]] static uint8_t GetStatusFromSpriteConfiguration(const uint8_t* registers, const uint8_t* memory)
 {
     using namespace TMS9918A;
 
     uint8_t flags_set = 0;
 
-    static uint8_t row_colors[SCREEN_X];
-
     for(int row = 0; row < SCREEN_Y; row++) {
-
-        std::fill(row_colors, row_colors + SCREEN_X, 0);
-        FillRowFromPattern(row, row_colors, registers, memory);
-
         if(SpritesVisible(registers)) {
-            AddSpritesToRow(row, row_colors, registers, memory, flags_set);
+            AddSpritesToRow(row, nullptr, registers, memory, flags_set);
         }
     }
 
