@@ -626,11 +626,9 @@ void Start(uint32_t& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 
 void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_status_result, [[maybe_unused]] float megahertz)
 {
-    auto pixel_setter = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+    auto pixel_setter = [](int x, int y, uint8_t color) {
         uint8_t *pixel = framebuffer + 4 * (x + y * TMS9918A::SCREEN_X) + 0;
-        pixel[0] = r;
-        pixel[1] = g;
-        pixel[2] = b;
+        TMS9918A::CopyColor(pixel, TMS9918A::Colors[color]);
     };
 
     vdp_status_result = TMS9918A::CreateImageAndReturnFlags(vdp_registers, vdp_ram, pixel_setter);

@@ -350,11 +350,9 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
 
     uint8_t* framebuffer = reinterpret_cast<uint8_t*>(surface->pixels);
 
-    auto pixel_setter = [framebuffer](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-        uint8_t *pixel = framebuffer + 3 * (x + y * TMS9918A::SCREEN_X) + 0;
-        pixel[2] = r;
-        pixel[1] = g;
-        pixel[0] = b;
+    auto pixel_setter = [framebuffer](int x, int y, uint8_t color) {
+        uint8_t *pixel = framebuffer + 4 * (x + y * TMS9918A::SCREEN_X) + 0;
+        TMS9918A::CopyColor(pixel, TMS9918A::Colors[color]);
     };
 
     vdp_status_result = TMS9918A::CreateImageAndReturnFlags(vdp_registers, vdp_ram, pixel_setter);

@@ -425,9 +425,11 @@ struct TMS9918AEmulator
         if(do_save_images_on_vdp_write) { /* debug */
 
             uint8_t framebuffer[SCREEN_X * SCREEN_Y * 3];
-            auto pixel_setter = [&framebuffer](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+            auto pixel_setter = [&framebuffer](int x, int y, uint8_t color) {
                 uint8_t *pixel = framebuffer + 3 * (x + y * SCREEN_X) + 0;
-                SetColor(pixel, r, g, b);
+                uint8_t rgb[3];
+                CopyColor(rgb, Colors[color]);
+                SetColor(pixel, rgb[0], rgb[1], rgb[2]);
             };
 
             CreateImageAndReturnFlags(registers.data(), memory.data(), pixel_setter);
@@ -1135,9 +1137,11 @@ bool debugger_image(Debugger *d, Z80_STATE* state, int argc, char **argv)
 
     // XXX
     uint8_t framebuffer[SCREEN_X * SCREEN_Y * 3];
-    auto pixel_setter = [&framebuffer](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+    auto pixel_setter = [&framebuffer](int x, int y, uint8_t color) {
         uint8_t *pixel = framebuffer + 3 * (x + y * SCREEN_X) + 0;
-        SetColor(pixel, r, g, b);
+        uint8_t rgb[3];
+        CopyColor(rgb, Colors[color]);
+        SetColor(pixel, rgb[0], rgb[1], rgb[2]);
     };
     std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
     CreateImageAndReturnFlags(vdp.registers.data(), vdp.memory.data(), pixel_setter);
@@ -1669,9 +1673,11 @@ void do_vdp_test(const char *vdp_dump_name, const char *image_name)
     fclose(vdp_dump_in);
 
     uint8_t framebuffer[SCREEN_X * SCREEN_Y * 3];
-    auto pixel_setter = [&framebuffer](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+    auto pixel_setter = [&framebuffer](int x, int y, uint8_t color) {
         uint8_t *pixel = framebuffer + 3 * (x + y * SCREEN_X) + 0;
-        SetColor(pixel, r, g, b);
+        uint8_t rgb[3];
+        CopyColor(rgb, Colors[color]);
+        SetColor(pixel, rgb[0], rgb[1], rgb[2]);
     };
     CreateImageAndReturnFlags(registers.data(), memory.data(), pixel_setter);
     FILE *fp = fopen(image_name, "wb");

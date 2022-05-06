@@ -9,6 +9,8 @@
 namespace PlatformInterface
 {
 
+bool display_screen = false;
+
 std::deque<Event> event_queue;
 
 bool EventIsWaiting()
@@ -192,6 +194,8 @@ void Start(uint32_t& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 
     then = std::chrono::system_clock::now();
 
+    display_screen = getenv("COLECO_TEMPLATE_DISPLAY") != nullptr;
+
     // printf("\033[2J");
 }
 
@@ -238,7 +242,7 @@ void display_frame()
             }
             puts("");
         }
-    } else if(false) {
+    } else if(true) {
         static char buffer[TMS9918A::SCREEN_X * TMS9918A::SCREEN_Y * 3 + 128]; // XXX image plus header
         int bytesToEncode = sprintf(buffer, "P6 %d %d 255\n", TMS9918A::SCREEN_X, TMS9918A::SCREEN_Y);
         memcpy(buffer + bytesToEncode, framebuffer, sizeof(framebuffer));
@@ -255,23 +259,21 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
 {
     using namespace std::chrono_literals;
 
-    auto pixel_setter = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-        uint8_t *pixel = framebuffer + 3 * (x + y * TMS9918A::SCREEN_X) + 0;
-        pixel[0] = r;
-        pixel[1] = g;
-        pixel[2] = b;
+    auto pixel_setter = [](int x, int y, uint8_t color) {
+        uint8_t *pixel = framebuffer + 4 * (x + y * TMS9918A::SCREEN_X) + 0;
+        TMS9918A::CopyColor(pixel, TMS9918A::Colors[color]);
     };
 
-    // vdp_status_result = TMS9918A::CreateImageAndReturnFlags(vdp_registers, vdp_ram, pixel_setter);
+    if(display_screen) {
 
-    if(frameCount++ % 10 == 0) {
-        // printf("\033[H");
-        // printf("frame %d\n", frameCount);
-        // printf("enqueued %zd audio samples\n", enqueued_audio_samples);
-        // display_frame();
-    }
-    if(frameCount++ % 1000 == 0) {
-        printf("frame %d\n", frameCount);
+        vdp_status_result = TMS9918A::CreateImageAndReturnFlags(vdp_registers, vdp_ram, pixel_setter);
+
+        if(frameCount++ % 10 == 0) {
+            // printf("\033[H");
+            // printf("frame %d\n", frameCount);
+            // printf("enqueued %zd audio samples\n", enqueued_audio_samples);
+            display_frame();
+        }
     }
 
     std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
