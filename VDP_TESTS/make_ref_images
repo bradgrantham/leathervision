@@ -6,7 +6,7 @@ do
         if [ -e $filename.vdp ]
         then
             echo $filename
-            ../emulator -vdp-test $filename.vdp $filename""_ref.ppm
+            ../emulator --vdp-test $filename.vdp $filename""_ref.ppm
         fi
     done
 done
