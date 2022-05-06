@@ -62,5 +62,5 @@ tables.h: maketables.c
 	$(CC) -Wall $< -o maketables
 	./maketables > $@
 
-coleco.js: emulator.cpp z80emu.cpp coleco_platform_sdl.cpp emulator.h coleco_platform.h tms9918.h
-	em++ -Wall -I/opt/local/include -Ibg80d -DUSE_BG80D=1 -std=c++17 -g -O3 -fsigned-char --preload-file OurColeco@/ --preload-file others@/ emulator.cpp z80emu.cpp coleco_platform_sdl.cpp -s USE_SDL=2 -s WASM=1 -s ASSERTIONS=1 -o coleco.js
+coleco.js: emulator.cpp z80emu.c coleco_platform_sdl.cpp emulator.h coleco_platform.h tms9918.h
+	em++ -Wall -I/opt/local/include -Ibg80d -DUSE_BG80D=1 -std=c++17 -g -O3 -fsigned-char --preload-file OurColeco@/ --preload-file others@/ emulator.cpp z80emu.c coleco_platform_sdl.cpp -s USE_SDL=2 -s WASM=1 -s ASSERTIONS=1 -o coleco.js
