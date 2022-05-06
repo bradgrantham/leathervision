@@ -2001,7 +2001,6 @@ int main(int argc, char **argv)
             playback_events.push_back(event);
         }
         fclose(playback_input);
-        printf("Will play back %zd events\n", playback_events.size());
 
         // Run for a few more seconds at the end of playback
         {
@@ -2033,14 +2032,12 @@ int main(int argc, char **argv)
         }
         if(playback_controllers) {
             if(playback_events.size() == 0) {
-                printf("playback ending\n");
                 exit(0);
             }
             current = previous;
             const ControllerEvent& next = playback_events.front();
             if((clk >= next.clk) && (index == next.index) && (JoystickNotKeypad == next.JoystickNotKeypad)) {
                 current = (previous | next.bits_set) & ~next.bits_cleared;
-                printf("playback matched %llu at %llu, state was %d and became %d\n", next.clk, clk, previous, current);
                 playback_events.pop_front();
             }
         }
