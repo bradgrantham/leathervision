@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cassert>
 #include <cerrno>
+#include <cinttypes>
 
 #include <string>
 #include <chrono>
@@ -420,7 +421,7 @@ struct TMS9918AEmulator
     void write(uint8_t cmd, uint8_t data)
     {
         using namespace TMS9918A;
-        if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %lu cmd==%d, in_nmi = %d\n", write_number, cmd, Z80IsInNMI(z80state) ? 1 : 0);
+        if(debug & DEBUG_VDP_OPERATIONS) printf("VDP write %" PRIu32 " cmd==%d, in_nmi = %d\n", write_number, cmd, Z80IsInNMI(z80state) ? 1 : 0);
         if(do_save_images_on_vdp_write) { /* debug */
 
             uint8_t framebuffer[SCREEN_X * SCREEN_Y * 3];
@@ -431,7 +432,7 @@ struct TMS9918AEmulator
 
             CreateImageAndReturnFlags(registers.data(), memory.data(), pixel_setter);
             char name[512];
-            sprintf(name, "frame_%04lu_%05lu_%d_%02X.ppm", frame_number, write_number, cmd, data);
+            sprintf(name, "frame_%04" PRIu32 "_%05" PRIu32 "_%d_%02X.ppm", frame_number, write_number, cmd, data);
             FILE *fp = fopen(name, "wb");
             write_rgb8_image_as_P6(framebuffer, SCREEN_X, SCREEN_Y, fp);
             fclose(fp);
@@ -528,7 +529,7 @@ struct TMS9918AEmulator
         frame_number++;
         write_number = 0;
         if(debug & DEBUG_SCANOUT) {
-            printf("scanout frame %lu\n", frame_number);
+            printf("scanout frame %" PRIu32 "\n", frame_number);
         }
 
         uint8_t scanout_status_set = scanout(registers.data(), memory.data());
