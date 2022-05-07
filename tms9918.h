@@ -185,7 +185,8 @@ inline const uint8_t* GetBitmapPatternRows(const uint8_t* registers, const uint8
 {
     uint16_t table_offset = (pattern_name * 8) + sector;
     const uint8_t *bitmap_pattern_generator_table = memory + GetBitmapPatternGeneratorTableBase(registers);
-    return bitmap_pattern_generator_table + table_offset;
+    uint16_t address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
+    return bitmap_pattern_generator_table + (table_offset & address_mask);
 }
 
 inline uint16_t GetStandardPatternGeneratorTableBase(const uint8_t* registers)
@@ -209,7 +210,8 @@ inline const uint8_t* GetBitmapColorRows(const uint8_t* registers, const uint8_t
 {
     uint16_t table_offset = (pattern_name * 8) + sector;
     const uint8_t *color_table = memory + GetBitmapColorTableBase(registers);
-    return color_table + table_offset;
+    uint16_t address_mask = ((registers[3] & VR3_ADDRESS_MASK_BITMAP) << VR3_ADDRESS_MASK_SHIFT) | ADDRESS_MASK_FILL;
+    return color_table + (table_offset & address_mask);
 }
 
 inline uint16_t GetStandardColorTableBase(const uint8_t* registers)
@@ -574,6 +576,15 @@ static uint8_t CreateImageAndReturnFlags(const uint8_t* registers, const uint8_t
     }
 
     return flags_set;
+}
+
+[[maybe_unused]] static uint8_t Create4BitPixmap(const uint8_t* registers, const uint8_t* memory, uint8_t fb[128 * 192])
+{
+    auto pixel_setter = [fb](int x, int y, uint8_t color) {
+        TMS9918A::Set4BitPixmapColor(fb, x, y, color);
+    };
+
+    return TMS9918A::CreateImageAndReturnFlags(registers, memory, pixel_setter);
 }
 
 };
