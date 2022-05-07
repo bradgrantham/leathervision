@@ -5,9 +5,9 @@ USE_BG80D=1
 
 # OPT=-g
 OPT=-g -O2
-LDFLAGS=
-LDFLAGS_GLFW=-L/opt/local/lib
-LDFLAGS_SDL=-L/opt/local/lib
+LDFLAGS=$(OPT) 
+LDFLAGS_GLFW=$(OPT) -L/opt/local/lib
+LDFLAGS_SDL=$(OPT) -L/opt/local/lib
 LDLIBS=-lreadline
 LDLIBS_GLFW=-lreadline -lao -lglfw -framework OpenGL -framework Cocoa -framework IOkit
 LDLIBS_SDL=-lreadline -lSDL2 -framework OpenGL -framework Cocoa -framework IOkit
