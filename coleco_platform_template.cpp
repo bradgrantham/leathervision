@@ -84,7 +84,7 @@ uint8_t GetKeypadState(ControllerIndex controller)
 
 size_t enqueued_audio_samples = 0;
 
-void EnqueueAudioSamples(uint8_t *buf, size_t sz)
+void EnqueueStereoU8AudioSamples(uint8_t *buf, size_t sz)
 {
     enqueued_audio_samples += sz;
 }
@@ -185,10 +185,10 @@ void get_input(void)
     }
 }
 
-void Start(uint32_t& audioSampleRate, size_t& preferredAudioBufferSampleCount)
+void Start(uint32_t& stereoU8SampleRate, size_t& preferredAudioBufferSizeBytes)
 {
-    audioSampleRate = 11050;
-    preferredAudioBufferSampleCount = 11050 / 100;
+    stereoU8SampleRate = 11050;
+    preferredAudioBufferSizeBytes = 11050 * 2 / 100;
 
     input_thread = new std::thread(get_input);
 
@@ -260,7 +260,7 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
     using namespace std::chrono_literals;
 
     auto pixel_setter = [](int x, int y, uint8_t color) {
-        uint8_t *pixel = framebuffer + 4 * (x + y * TMS9918A::SCREEN_X) + 0;
+        uint8_t *pixel = framebuffer + 3 * (x + y * TMS9918A::SCREEN_X);
         TMS9918A::CopyColor(pixel, TMS9918A::Colors[color]);
     };
 

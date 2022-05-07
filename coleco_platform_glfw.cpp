@@ -108,7 +108,7 @@ ao_device *open_ao(int rate)
 
     memset(&format, 0, sizeof(format));
     format.bits = 8;
-    format.channels = 1;
+    format.channels = 2;
     format.rate = rate;
     format.byte_format = AO_FMT_LITTLE;
 
@@ -121,7 +121,7 @@ ao_device *open_ao(int rate)
     return device;
 }
 
-void EnqueueAudioSamples(uint8_t *buf, size_t sz)
+void EnqueueStereoU8AudioSamples(uint8_t *buf, size_t sz)
 {
     ao_play(aodev, (char*)buf, sz);
 }
@@ -569,13 +569,13 @@ static constexpr int SCREEN_SCALE = 3;
 std::chrono::time_point<std::chrono::system_clock> previous_draw_time;
 std::chrono::time_point<std::chrono::system_clock> previous_event_time;
 
-void Start(uint32_t& audioSampleRate, size_t& preferredAudioBufferSampleCount)
+void Start(uint32_t& stereoU8SampleRate, size_t& preferredAudioBufferSizeBytes)
 {
     aodev = open_ao(audio_rate);
     if(aodev == NULL)
         exit(EXIT_FAILURE);
-    audioSampleRate = audio_rate;
-    preferredAudioBufferSampleCount = audio_rate / 100;
+    stereoU8SampleRate = audio_rate;
+    preferredAudioBufferSizeBytes = audio_rate / 100 * 2;
 
     load_joystick_setup();
 
@@ -627,7 +627,7 @@ void Start(uint32_t& audioSampleRate, size_t& preferredAudioBufferSampleCount)
 void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_status_result, [[maybe_unused]] float megahertz)
 {
     auto pixel_setter = [](int x, int y, uint8_t color) {
-        uint8_t *pixel = framebuffer + 4 * (x + y * TMS9918A::SCREEN_X) + 0;
+        uint8_t *pixel = framebuffer + 4 * (x + y * TMS9918A::SCREEN_X);
         TMS9918A::CopyColor(pixel, TMS9918A::Colors[color]);
     };
 

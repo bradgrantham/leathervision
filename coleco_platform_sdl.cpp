@@ -91,15 +91,17 @@ SDL_AudioDeviceID audio_device;
 bool audio_needs_start = true;
 SDL_AudioFormat actual_audio_format;
 
-void EnqueueAudioSamples(uint8_t *buf, size_t sz)
+void EnqueueStereoU8AudioSamples(uint8_t *buf, size_t sz)
 {
     if(audio_needs_start) {
         audio_needs_start = false;
         SDL_PauseAudioDevice(audio_device, 0);
         /* give a little data to avoid gaps and to avoid a pop */
-        std::array<uint8_t, 1024> lead_in;
-        for(int i = 0; i < lead_in.size(); i++) {
-            lead_in[i] = 128 + (buf[0] - 128) * i / lead_in.size();
+        std::array<uint8_t, 2048> lead_in;
+        size_t sampleCount = lead_in.size() / 2;
+        for(int i = 0; i < sampleCount; i++) {
+            lead_in[i * 2 + 0] = 128 + (buf[0] - 128) * i / sampleCount;
+            lead_in[i * 2 + 1] = 128 + (buf[0] - 128) * i / sampleCount;
         }
         SDL_QueueAudio(audio_device, lead_in.data(), lead_in.size());
     }
@@ -107,7 +109,6 @@ void EnqueueAudioSamples(uint8_t *buf, size_t sz)
     if(actual_audio_format == AUDIO_U8) {
         SDL_QueueAudio(audio_device, buf, sz);
     }
-
 }
 
 SDL_Window *window;
@@ -119,7 +120,7 @@ static constexpr int SCREEN_SCALE = 3;
 std::chrono::time_point<std::chrono::system_clock> previous_draw_time;
 std::chrono::time_point<std::chrono::system_clock> previous_event_time;
 
-void Start(uint32_t& audioSampleRate, size_t& preferredAudioBufferSampleCount)
+void Start(uint32_t& stereoU8SampleRate, size_t& preferredAudioBufferSizeBytes)
 {
 #if defined(EMSCRIPTEN)
 
@@ -156,13 +157,14 @@ void Start(uint32_t& audioSampleRate, size_t& preferredAudioBufferSampleCount)
     SDL_AudioSpec audiospec{0};
     audiospec.freq = 44100;
     audiospec.format = AUDIO_U8;
-    audiospec.channels = 1;
+    audiospec.channels = 2;
     audiospec.samples = 1024; // audiospec.freq / 100;
     audiospec.callback = nullptr;
     SDL_AudioSpec obtained;
 
     audio_device = SDL_OpenAudioDevice(nullptr, 0, &audiospec, &obtained, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE); // | SDL_AUDIO_ALLOW_FORMAT_CHANGE);
     assert(audio_device > 0);
+    assert(obtained.channels == audiospec.channels);
 
     switch(obtained.format) {
         case AUDIO_U8: {
@@ -174,8 +176,8 @@ void Start(uint32_t& audioSampleRate, size_t& preferredAudioBufferSampleCount)
             exit(1);
     }
 
-    audioSampleRate = obtained.freq;
-    preferredAudioBufferSampleCount = obtained.samples / 2;
+    stereoU8SampleRate = obtained.freq;
+    preferredAudioBufferSizeBytes = obtained.samples * 2;
     actual_audio_format = obtained.format;
 
     SDL_PumpEvents();
@@ -351,8 +353,12 @@ void Frame(const uint8_t* vdp_registers, const uint8_t* vdp_ram, uint8_t& vdp_st
     uint8_t* framebuffer = reinterpret_cast<uint8_t*>(surface->pixels);
 
     auto pixel_setter = [framebuffer](int x, int y, uint8_t color) {
-        uint8_t *pixel = framebuffer + 4 * (x + y * TMS9918A::SCREEN_X) + 0;
-        TMS9918A::CopyColor(pixel, TMS9918A::Colors[color]);
+        uint8_t *pixel = framebuffer + 3 * (x + y * TMS9918A::SCREEN_X);
+        uint8_t rgb[3];
+        TMS9918A::CopyColor(rgb, TMS9918A::Colors[color]);
+        pixel[0] = rgb[2];
+        pixel[1] = rgb[1];
+        pixel[2] = rgb[0];
     };
 
     vdp_status_result = TMS9918A::CreateImageAndReturnFlags(vdp_registers, vdp_ram, pixel_setter);
